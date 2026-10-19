@@ -79,17 +79,22 @@ body {
 }
 
 /* 參數面板 */
+/* 位置加上 safe-area，避開手機瀏海與系統列 */
 .panel {
+  --inset-top: env(safe-area-inset-top, 0px);
+  --inset-right: env(safe-area-inset-right, 0px);
+  --inset-bottom: env(safe-area-inset-bottom, 0px);
+  --inset-left: env(safe-area-inset-left, 0px);
   position: fixed;
-  top: 16px;
-  right: 16px;
+  top: calc(16px + var(--inset-top));
+  right: calc(16px + var(--inset-right));
   z-index: 5;
   display: flex;
   flex-direction: column;
   width: 290px;
-  max-width: calc(100vw - 32px);
-  max-height: calc(100vh - 32px);
-  max-height: calc(100dvh - 32px);
+  max-width: calc(100vw - 32px - var(--inset-left) - var(--inset-right));
+  max-height: calc(100vh - 32px - var(--inset-top) - var(--inset-bottom));
+  max-height: calc(100dvh - 32px - var(--inset-top) - var(--inset-bottom));
   background: var(--panel-bg);
   border: 1px solid var(--panel-border);
   border-radius: 14px;
@@ -306,9 +311,9 @@ select option {
 @media (max-width: 600px) {
   .panel {
     top: auto;
-    right: 16px;
-    bottom: 16px;
-    left: 16px;
+    right: calc(16px + var(--inset-right));
+    bottom: calc(16px + var(--inset-bottom));
+    left: calc(16px + var(--inset-left));
     width: auto;
     max-height: 55vh;
     max-height: 55dvh;
