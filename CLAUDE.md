@@ -2,6 +2,15 @@
 
 本檔案提供 Claude Code 在此專案中工作時須遵守的規範。
 
+## 專案概要
+
+以 WebGL2 與 FFT 海洋頻譜即時模擬擬真海浪的靜態網站，不使用外部函式庫、沒有建置步驟。
+
+- 本機執行：在專案根目錄執行 `python3 -m http.server 8000`，再開啟 <http://localhost:8000>（不能直接雙擊 `index.html`）。
+- 程式碼位於 `js/`（ES module），shader 位於 `shaders/`，`common.glsl` 透過 JS 端的 `#include` 前處理插入。
+- 網址加上 `?debug` 會開放 `window.__ocean` 除錯介面（暫停畫面、讀取統計值）。
+- 詳細結構與技術說明見 `README.md`。
+
 ## 語言
 
 - 與使用者的對話一律使用**繁體中文**（不使用簡體中文）。
