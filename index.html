@@ -76,11 +76,13 @@
         <div class="control control-inline">
           <label for="quality">渲染品質</label>
           <select id="quality">
+            <option value="auto">自動</option>
             <option value="high">高</option>
             <option value="medium">中</option>
             <option value="low">低</option>
           </select>
         </div>
+        <p class="hint">自動：依實際幀率調整解析度，太慢時再降低畫質等級。</p>
       </section>
 
       <section class="stats">
@@ -89,6 +91,17 @@
           <div><dt>尖峰週期</dt><dd id="stat-period">–</dd></div>
           <div><dt>畫面更新</dt><dd id="stat-fps">–</dd></div>
         </dl>
+        <details class="performance">
+          <summary>效能資訊</summary>
+          <dl>
+            <div><dt>顯示卡</dt><dd data-perf="renderer">–</dd></div>
+            <div><dt>畫質</dt><dd data-perf="quality">–</dd></div>
+            <div><dt>渲染解析度</dt><dd data-perf="resolution">–</dd></div>
+            <div><dt>海浪模擬</dt><dd data-perf="simulation">–</dd></div>
+            <div><dt>海面網格</dt><dd data-perf="grid">–</dd></div>
+            <div><dt>抗鋸齒</dt><dd data-perf="antialiasing">–</dd></div>
+          </dl>
+        </details>
         <button id="reset" class="button secondary" type="button">恢復預設值</button>
       </section>
     </div>

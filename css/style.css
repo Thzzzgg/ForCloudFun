@@ -289,21 +289,56 @@ select option {
   outline-offset: 2px;
 }
 
-.stats dl {
+.stats > dl {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
   gap: 8px;
   margin: 0 0 12px;
 }
 
-.stats dt {
+.stats > dl dt {
   font-size: 11px;
   color: var(--text-dim);
 }
 
-.stats dd {
+.stats > dl dd {
   margin: 2px 0 0;
   font-size: 14px;
+  font-variant-numeric: tabular-nums;
+}
+
+/* 效能資訊：可展開的兩欄清單 */
+.performance {
+  margin: 0 0 12px;
+}
+
+.performance summary {
+  padding: 2px 0;
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  color: var(--text-dim);
+  cursor: pointer;
+}
+
+.performance dl {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 6px 12px;
+  margin: 8px 0 0;
+  font-size: 12px;
+}
+
+.performance dl > div {
+  display: contents;
+}
+
+.performance dt {
+  color: var(--text-dim);
+}
+
+.performance dd {
+  margin: 0;
+  overflow-wrap: anywhere;
   font-variant-numeric: tabular-nums;
 }
 

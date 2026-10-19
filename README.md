@@ -10,6 +10,8 @@
 - **浮標**：在 GPU 上取樣浮標所在位置的海面，讓它隨浪起伏、傾斜，頂端燈號每 4 秒閃一次。
 - **海浪音效**：以 Web Audio 即時合成底噪、浪潮起伏與碎浪聲，節奏跟著浪的週期、強度跟著浪高變化。
 - **參數控制面板**：可調整風速、風向、浪高倍率、浪尖銳度、白浪泡沫、海水顏色、音量與渲染品質，並顯示有效波高與尖峰週期。
+- **自動畫質**：依實際幀率調整渲染解析度，解析度降到底仍不夠順時再降低畫質等級（海面網格與 FFT 尺寸）。若降低後沒有變快（例如螢幕更新率鎖在 30 fps），會還原並停止調整。
+- **效能資訊**：面板中可展開查看顯示卡型號、目前畫質、渲染解析度、模擬與網格大小，方便比較不同裝置。
 - **HDR 後製**：多重取樣抗鋸齒、光暈（bloom）、ACES 色調映射。
 
 ## 執行方式
@@ -26,7 +28,15 @@ python3 -m http.server 8000
 
 ### 瀏覽器需求
 
-需要支援 WebGL2 與 `EXT_color_buffer_float` 的瀏覽器，例如最新版的 Chrome、Edge、Firefox 或 Safari（iOS 15 以上）。手機預設使用「中」畫質，若不夠順暢可在面板改為「低」。
+需要支援 WebGL2 與 `EXT_color_buffer_float` 的瀏覽器，例如最新版的 Chrome、Edge、Firefox 或 Safari（iOS 15 以上）。畫質預設為「自動」，電腦從「高」、手機與平板從「中」開始，再依實際幀率調整；也可以在面板手動選擇高、中、低。
+
+### 測試
+
+```bash
+node --test
+```
+
+會執行 `tests/` 中的單元測試（目前涵蓋自動畫質的判斷邏輯），需要 Node.js 18 以上。
 
 ### 除錯模式
 
@@ -45,11 +55,13 @@ js/ocean-surface.js     海面投影網格與繪製
 js/sky.js               大氣散射天空與太陽光顏色
 js/buoy.js              浮標幾何與繪製
 js/post.js              HDR 渲染目標、光暈與色調映射
+js/quality.js           自動畫質的判斷邏輯（不依賴 WebGL）
 js/textures.js          程序產生的泡沫紋理
 js/audio.js             Web Audio 海浪音效合成
 js/ui.js                控制面板綁定
 js/camera.js            攝影機矩陣
 shaders/                所有 GLSL shader（common.glsl 由其他 shader include）
+tests/                  單元測試（node --test）
 ```
 
 ## 技術筆記
