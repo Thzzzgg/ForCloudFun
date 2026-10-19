@@ -1,0 +1,107 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>擬真海浪</title>
+  <meta name="description" content="以 WebGL2 與 FFT 海洋頻譜即時模擬的擬真海浪。">
+  <meta name="theme-color" content="#0b2233">
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <canvas id="ocean" aria-label="即時模擬的海面畫面"></canvas>
+
+  <div id="status" class="status" role="status">
+    <div class="spinner" aria-hidden="true"></div>
+    <p id="status-text">正在載入海洋…</p>
+  </div>
+
+  <aside id="panel" class="panel" aria-label="海面參數">
+    <div class="panel-header">
+      <h1>海面參數</h1>
+      <button id="panel-toggle" class="icon-button" type="button" aria-expanded="true" aria-controls="panel-body">收合</button>
+    </div>
+
+    <div id="panel-body" class="panel-body">
+      <section>
+        <h2>風與浪</h2>
+        <div class="control">
+          <label for="windSpeed">風速</label>
+          <output data-for="windSpeed"></output>
+          <input type="range" id="windSpeed" min="2" max="25" step="0.5">
+        </div>
+        <div class="control">
+          <label for="windDirection">風向</label>
+          <output data-for="windDirection"></output>
+          <input type="range" id="windDirection" min="0" max="355" step="5">
+        </div>
+        <div class="control">
+          <label for="heightScale">浪高倍率</label>
+          <output data-for="heightScale"></output>
+          <input type="range" id="heightScale" min="0.2" max="2" step="0.05">
+        </div>
+        <div class="control">
+          <label for="choppiness">浪尖銳度</label>
+          <output data-for="choppiness"></output>
+          <input type="range" id="choppiness" min="0" max="1.5" step="0.05">
+        </div>
+        <p class="hint">箭頭為浪前進的方向，朝上代表往遠方。</p>
+      </section>
+
+      <section>
+        <h2>外觀</h2>
+        <div class="control">
+          <label for="foam">白浪泡沫</label>
+          <output data-for="foam"></output>
+          <input type="range" id="foam" min="0" max="1" step="0.01">
+        </div>
+        <div class="control control-inline">
+          <label for="waterColor">海水顏色</label>
+          <input type="color" id="waterColor">
+        </div>
+      </section>
+
+      <section>
+        <h2>音效</h2>
+        <button id="audioToggle" class="button" type="button" aria-pressed="false">開啟海浪聲</button>
+        <div class="control">
+          <label for="volume">音量</label>
+          <output data-for="volume"></output>
+          <input type="range" id="volume" min="0" max="1" step="0.01">
+        </div>
+      </section>
+
+      <section>
+        <h2>畫質</h2>
+        <div class="control control-inline">
+          <label for="quality">渲染品質</label>
+          <select id="quality">
+            <option value="high">高</option>
+            <option value="medium">中</option>
+            <option value="low">低</option>
+          </select>
+        </div>
+      </section>
+
+      <section class="stats">
+        <dl>
+          <div><dt>有效波高</dt><dd id="stat-height">–</dd></div>
+          <div><dt>尖峰週期</dt><dd id="stat-period">–</dd></div>
+          <div><dt>畫面更新</dt><dd id="stat-fps">–</dd></div>
+        </dl>
+        <button id="reset" class="button secondary" type="button">恢復預設值</button>
+      </section>
+    </div>
+  </aside>
+
+  <script>
+    // 直接雙擊開啟（file://）時瀏覽器會擋下 ES module，提示改用本機伺服器
+    if (location.protocol === 'file:') {
+      document.getElementById('status-text').textContent =
+        '請透過網頁伺服器開啟，例如在專案資料夾執行 python3 -m http.server 後連到 http://localhost:8000。';
+      document.getElementById('status').classList.add('error');
+    }
+  </script>
+  <script type="module" src="js/main.js"></script>
+</body>
+</html>
