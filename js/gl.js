@@ -23,8 +23,18 @@ export function createContext(canvas, { preserveDrawingBuffer = false } = {}) {
   gl.caps = {
     anisoExt: aniso,
     maxAnisotropy: aniso ? Math.min(8, gl.getParameter(aniso.MAX_TEXTURE_MAX_ANISOTROPY_EXT)) : 0,
+    renderer: rendererName(gl),
   };
   return gl;
+}
+
+// 顯示卡名稱：Chrome 與 Safari 的 RENDERER 只回傳通用字串，要透過除錯擴充取得實際型號
+// （Firefox 的 RENDERER 本身就是型號，而且對這個擴充會發出棄用警告，所以不呼叫）
+function rendererName(gl) {
+  const renderer = gl.getParameter(gl.RENDERER);
+  if (renderer !== 'WebKit WebGL') return renderer;
+  const info = gl.getExtension('WEBGL_debug_renderer_info');
+  return info ? gl.getParameter(info.UNMASKED_RENDERER_WEBGL) : renderer;
 }
 
 // 讀入所有 shader 原始碼，並展開 #include "檔名"

@@ -10,6 +10,7 @@ import { createFoamDetailTexture } from './textures.js';
 import { OceanAudio } from './audio.js';
 import { createControls } from './ui.js';
 import { createCamera, updateCamera } from './camera.js';
+import { AdaptiveQuality } from './quality.js';
 
 const SHADERS = [
   'common.glsl', 'fullscreen.vert',
@@ -31,10 +32,13 @@ const CONFIG = {
 };
 
 const QUALITY = {
-  high: { fftSize: 256, grid: [720, 300], maxPixelRatio: 2 },
-  medium: { fftSize: 256, grid: [480, 200], maxPixelRatio: 1.5 },
-  low: { fftSize: 128, grid: [320, 140], maxPixelRatio: 1 },
+  high: { label: '高', fftSize: 256, grid: [720, 300], maxPixelRatio: 2 },
+  medium: { label: '中', fftSize: 256, grid: [480, 200], maxPixelRatio: 1.5 },
+  low: { label: '低', fftSize: 128, grid: [320, 140], maxPixelRatio: 1 },
 };
+const QUALITY_TIERS = ['high', 'medium', 'low'].map((name) => ({ name, maxPixelRatio: QUALITY[name].maxPixelRatio }));
+// 自動畫質的起始等級：觸控裝置（手機、平板）從「中」開始
+const AUTO_START_TIER = window.matchMedia('(pointer: coarse)').matches ? 'medium' : 'high';
 
 const DEFAULTS = {
   windSpeed: 10,
@@ -44,7 +48,7 @@ const DEFAULTS = {
   foam: 0.5,
   waterColor: '#0e6a77',
   volume: 0.6,
-  quality: window.matchMedia('(pointer: coarse)').matches ? 'medium' : 'high',
+  quality: 'auto',
 };
 
 const SEA_STATE_KEYS = ['windSpeed', 'windDirection', 'heightScale'];
@@ -115,7 +119,8 @@ async function main() {
 
   let simulation = null;
   let surface = null;
-  let preset = null;
+  let tier = null; // 目前使用的畫質等級
+  let adaptive = null; // 自動畫質控制器（手動選擇畫質時為 null）
   let seaStateDirty = true;
   let stats = { significantHeight: 0, peakPeriod: 0 };
 
@@ -136,25 +141,60 @@ async function main() {
   });
   if (!audio.supported) ui.disableAudio();
 
+  const devicePixelRatio = () => window.devicePixelRatio || 1;
+
   function resize() {
-    const ratio = Math.min(window.devicePixelRatio || 1, preset.maxPixelRatio);
+    const ratio = adaptive ? adaptive.pixelRatio : Math.min(devicePixelRatio(), QUALITY[tier].maxPixelRatio);
     const width = Math.max(1, Math.round(canvas.clientWidth * ratio));
     const height = Math.max(1, Math.round(canvas.clientHeight * ratio));
     if (canvas.width !== width || canvas.height !== height) {
       canvas.width = width;
       canvas.height = height;
+      showPerformance();
     }
     post.resize(width, height);
   }
 
+  // 切換畫質等級：FFT 尺寸相同時沿用原本的模擬（保留泡沫狀態），只重建海面網格
+  function setTier(name) {
+    const preset = QUALITY[name];
+    if (!simulation || simulation.size !== preset.fftSize) {
+      simulation?.dispose();
+      simulation = new OceanSimulation(gl, programs, { size: preset.fftSize, lengths: CONFIG.cascadeLengths });
+      seaStateDirty = true;
+    }
+    if (name !== tier || !surface) {
+      surface?.dispose();
+      surface = new OceanSurface(gl, programs.ocean, { columns: preset.grid[0], rows: preset.grid[1] });
+    }
+    tier = name;
+  }
+
   function applyQuality() {
-    preset = QUALITY[params.quality];
-    simulation?.dispose();
-    surface?.dispose();
-    simulation = new OceanSimulation(gl, programs, { size: preset.fftSize, lengths: CONFIG.cascadeLengths });
-    surface = new OceanSurface(gl, programs.ocean, { columns: preset.grid[0], rows: preset.grid[1] });
-    seaStateDirty = true;
+    adaptive = params.quality === 'auto'
+      ? new AdaptiveQuality({ tiers: QUALITY_TIERS, startTier: AUTO_START_TIER, devicePixelRatio: devicePixelRatio() })
+      : null;
+    setTier(adaptive ? adaptive.tier : params.quality);
     resize();
+    showPerformance();
+  }
+
+  // 面板的「效能資訊」，方便在不同裝置上比較
+  function showPerformance() {
+    const preset = QUALITY[tier];
+    let quality = preset.label;
+    if (adaptive) {
+      quality = `自動 · ${preset.label}`;
+      if (adaptive.scale < 0.995) quality += ` · 解析度 ${Math.round(adaptive.scale * 100)}%`;
+    }
+    ui.setPerformance({
+      renderer: gl.caps.renderer,
+      quality,
+      resolution: `${canvas.width} × ${canvas.height}`,
+      simulation: `${preset.fftSize}² × ${CONFIG.cascadeLengths.length} 層`,
+      grid: `${preset.grid[0]} × ${preset.grid[1]}`,
+      antialiasing: post.samples > 1 ? `MSAA ${post.samples}×` : '無',
+    });
   }
 
   function updateSeaState() {
@@ -172,6 +212,10 @@ async function main() {
   }
 
   applyQuality();
+
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden) adaptive?.pause();
+  });
 
   let running = true;
   canvas.addEventListener('webglcontextlost', (event) => {
@@ -191,7 +235,30 @@ async function main() {
       getSimulation: () => simulation,
       setPaused: (value) => { paused = value; },
       markSeaStateDirty: () => { seaStateDirty = true; },
+      getQuality,
+      // 直接餵一個幀率給自動畫質，測試降級與升級流程
+      simulateFps(fps) {
+        if (adaptive?.evaluate(fps)) applyAdaptiveChange();
+        return getQuality();
+      },
     };
+  }
+
+  function getQuality() {
+    return {
+      mode: params.quality,
+      tier,
+      scale: adaptive ? adaptive.scale : 1,
+      locked: adaptive ? adaptive.locked : false,
+      canvas: [canvas.width, canvas.height],
+      fftSize: simulation.size,
+    };
+  }
+
+  function applyAdaptiveChange() {
+    if (adaptive.tier !== tier) setTier(adaptive.tier);
+    resize();
+    showPerformance();
   }
 
   let time = 0;
@@ -212,6 +279,10 @@ async function main() {
     }
     time += dt;
 
+    if (adaptive) {
+      adaptive.devicePixelRatio = devicePixelRatio();
+      if (adaptive.sample(elapsed)) applyAdaptiveChange();
+    }
     resize();
     if (seaStateDirty) updateSeaState();
 

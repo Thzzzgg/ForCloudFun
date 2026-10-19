@@ -84,11 +84,18 @@ export function createControls(params, { onChange, onAudioToggle, onReset }) {
   const height = document.getElementById('stat-height');
   const period = document.getElementById('stat-period');
   const fps = document.getElementById('stat-fps');
+  const performanceFields = new Map([...document.querySelectorAll('[data-perf]')].map((el) => [el.dataset.perf, el]));
   return {
     sync,
     disableAudio() {
       audioButton.disabled = true;
       audioButton.textContent = '此瀏覽器不支援音效';
+    },
+    setPerformance(info) {
+      for (const [key, value] of Object.entries(info)) {
+        const field = performanceFields.get(key);
+        if (field) field.textContent = value;
+      }
     },
     setStats({ significantHeight, peakPeriod, framesPerSecond }) {
       if (significantHeight !== undefined) height.textContent = `${significantHeight.toFixed(1)} m`;
