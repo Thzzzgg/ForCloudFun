@@ -103,8 +103,8 @@ export class Buoy {
       .set('u_sunColor', sunRadiance)
       .set('u_lampIntensity', 0.3 + flash * 60)
       .set('u_fogDensity', fogDensity);
-    simulation.bindTextures(program, 0);
-    program.tex('u_sky', sky.texture, 9);
+    const unit = simulation.bindTextures(program, 0);
+    program.tex('u_sky', sky.texture, unit);
 
     gl.enable(gl.DEPTH_TEST);
     gl.bindVertexArray(this.vao);

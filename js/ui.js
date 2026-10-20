@@ -1,10 +1,15 @@
 // 參數控制面板：把滑桿、顏色、音效與畫質設定綁定到參數物件
 
+const direction = (v) => `<span class="arrow" style="transform: rotate(${v}deg)">↑</span>${Math.round(v)}°`;
+
 const FORMATTERS = {
   windSpeed: (v) => `${v.toFixed(1)} m/s`,
-  windDirection: (v) => `<span class="arrow" style="transform: rotate(${v}deg)">↑</span>${Math.round(v)}°`,
+  windDirection: direction,
   heightScale: (v) => `${v.toFixed(2)}×`,
   choppiness: (v) => v.toFixed(2),
+  swellHeight: (v) => (v > 0 ? `${v.toFixed(1)} m` : '無'),
+  swellDirection: direction,
+  swellPeriod: (v) => `${v.toFixed(1)} s`,
   foam: (v) => `${Math.round(v * 100)}%`,
   volume: (v) => `${Math.round(v * 100)}%`,
 };

@@ -72,8 +72,8 @@ export class OceanSurface {
       .set('u_foamBias', foamBias)
       .set('u_roughness', 0.045)
       .set('u_fogDensity', fogDensity);
-    simulation.bindTextures(program, 0);
-    program.tex('u_sky', sky.texture, 9).tex('u_foamDetail', foamDetail, 10);
+    const unit = simulation.bindTextures(program, 0);
+    program.tex('u_sky', sky.texture, unit).tex('u_foamDetail', foamDetail, unit + 1);
 
     gl.enable(gl.DEPTH_TEST);
     gl.depthFunc(gl.LESS);

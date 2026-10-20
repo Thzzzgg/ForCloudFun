@@ -20,7 +20,13 @@ const SHADERS = [
 ];
 
 const CONFIG = {
-  cascadeLengths: [250, 17, 5], // 三層海面區塊的邊長（公尺）
+  // 四層海面區塊：邊長（公尺）與該層負責的最長波長；最大一層負責湧浪與最長的風浪
+  cascades: [
+    { length: 2000 },
+    { length: 250, maxWavelength: 125 },
+    { length: 17, maxWavelength: 17 / 6 },
+    { length: 5, maxWavelength: 5 / 6 },
+  ],
   fetch: 100000, // 風區長度（公尺）
   maxDistance: 20000, // 海面延伸到 20 公里外
   fogDensity: 1 / 9000,
@@ -45,13 +51,16 @@ const DEFAULTS = {
   windDirection: 160,
   heightScale: 1,
   choppiness: 0.9,
+  swellHeight: 1,
+  swellDirection: 200,
+  swellPeriod: 12,
   foam: 0.5,
   waterColor: '#0e6a77',
   volume: 0.6,
   quality: 'auto',
 };
 
-const SEA_STATE_KEYS = ['windSpeed', 'windDirection', 'heightScale'];
+const SEA_STATE_KEYS = ['windSpeed', 'windDirection', 'heightScale', 'swellHeight', 'swellDirection', 'swellPeriod'];
 
 const statusBox = document.getElementById('status');
 const statusText = document.getElementById('status-text');
@@ -160,7 +169,7 @@ async function main() {
     const preset = QUALITY[name];
     if (!simulation || simulation.size !== preset.fftSize) {
       simulation?.dispose();
-      simulation = new OceanSimulation(gl, programs, { size: preset.fftSize, lengths: CONFIG.cascadeLengths });
+      simulation = new OceanSimulation(gl, programs, { size: preset.fftSize, cascades: CONFIG.cascades });
       seaStateDirty = true;
     }
     if (name !== tier || !surface) {
@@ -191,7 +200,7 @@ async function main() {
       renderer: gl.caps.renderer,
       quality,
       resolution: `${canvas.width} × ${canvas.height}`,
-      simulation: `${preset.fftSize}² × ${CONFIG.cascadeLengths.length} 層`,
+      simulation: `${preset.fftSize}² × ${CONFIG.cascades.length} 層`,
       grid: `${preset.grid[0]} × ${preset.grid[1]}`,
       antialiasing: post.samples > 1 ? `MSAA ${post.samples}×` : '無',
     });
@@ -203,6 +212,9 @@ async function main() {
       windDirection: (params.windDirection * Math.PI) / 180,
       heightScale: params.heightScale,
       fetch: CONFIG.fetch,
+      swellHeight: params.swellHeight,
+      swellDirection: (params.swellDirection * Math.PI) / 180,
+      swellPeriod: params.swellPeriod,
     };
     simulation.setSeaState(seaState);
     stats = waveStatistics({ ...seaState, kMin: simulation.kMin, kMax: simulation.kMax });
