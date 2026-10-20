@@ -32,6 +32,9 @@ uniform vec3 u_scatterColor;     // 海水散射顏色（線性色彩空間）
 uniform float u_foamBias;        // 紊流值低於此門檻的地方產生泡沫（由泡沫量與風速決定）
 uniform float u_roughness;       // 解析度以下的細微波紋造成的基本粗糙度
 uniform float u_fogDensity;
+uniform vec2 u_windDir;          // 風吹往的方向（xz 平面的單位向量）
+uniform float u_foamStreaks;     // 強風時沿風向的泡沫條紋（0 = 沒有）
+uniform float u_streakDrift;     // 條紋隨表層海流往下風處漂移的距離（公尺）
 
 out vec4 fragColor;
 
@@ -116,6 +119,19 @@ void main() {
   float detail = texture(u_foamDetail, detailUV).r * 0.65 + texture(u_foamDetail, detailUV * 2.7 + 0.37).g * 0.35;
   float threshold = 1.0 - 0.8 * coverage;
   float foamMask = smoothstep(threshold, threshold + 0.3, detail) * smoothstep(0.0, 0.4, coverage) * 0.88;
+
+  // 強風時，碎浪留下的泡沫被風拉成細長的條紋：把泡沫紋理沿風向拉長，再用低頻噪音讓條紋一段一段的；
+  // 拉長的紋理在遠處容易產生摩爾紋，所以隨距離淡出
+  if (u_foamStreaks > 0.0) {
+    vec2 across = vec2(-u_windDir.y, u_windDir.x);
+    vec2 streakUV = vec2(dot(v_restXZ, across), dot(v_restXZ, u_windDir) - u_streakDrift) * vec2(0.05, 0.004);
+    float lines = texture(u_foamDetail, streakUV).r;
+    float patches = texture(u_foamDetail, v_restXZ * 0.004 + 0.31).g;
+    // 風越強，條紋越寬、越密
+    float streaks = smoothstep(0.66 - 0.12 * u_foamStreaks, 0.82, lines) * smoothstep(0.15, 0.55, patches)
+      * smoothstep(0.25, 0.6, detail) * (1.0 - smoothstep(60.0, 250.0, dist)) * u_foamStreaks;
+    foamMask = max(foamMask, streaks * 0.75);
+  }
   color = mix(color, vec3(0.75) * foamLight, foamMask);
 
   color = applyAerialPerspective(color, -V, dist, u_sky, u_fogDensity);
