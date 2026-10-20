@@ -1,5 +1,6 @@
 // 鐘浮標的鐘錘：浮標隨浪搖晃時，吊在鐘裡的鐘錘因為慣性擺盪，撞到鐘的內緣就會響
 // 以小角度的單擺模擬鐘錘在水平面上的位移，支點跟著浮標頂端移動；不依賴 WebGL 與 Web Audio
+// 真實的鐘浮標又大又重，短浪幾乎搖不動它，所以取樣到的姿態先經過低通濾波（浮標的慣性）
 
 const GRAVITY = 9.81;
 const MAX_STEP = 1 / 240; // 每一小步最長的時間（秒），撞擊才不會穿過鐘壁
@@ -12,8 +13,10 @@ const scale = (a, s) => [a[0] * s, a[1] * s];
 
 export class BellClapper {
   // pivotHeight：鐘錘支點在吃水線上多高（公尺）；length：鐘錘的擺長；gap：鐘錘靜止時與鐘內緣的距離
-  constructor({ pivotHeight = 2.1, length = 0.3, gap = 0.05, damping = 0.5, restitution = 0.3 } = {}) {
-    Object.assign(this, { pivotHeight, length, gap, damping, restitution });
+  // inertia：浮標慣性的時間常數（秒），兩段低通濾波，週期比它短很多的浪幾乎搖不動浮標
+  constructor({ pivotHeight = 2.1, length = 0.3, gap = 0.05, damping = 0.5, restitution = 0.3, inertia = 0.5 } = {}) {
+    Object.assign(this, { pivotHeight, length, gap, damping, restitution, inertia });
+    this.filtered = null; // 濾波後的支點與傾斜（兩段）
     this.offset = [0, 0]; // 鐘錘相對支點的水平位移（公尺）
     this.velocity = [0, 0];
     this.tilt = [0, 0]; // 浮標的傾斜：上方向的水平分量除以垂直分量
@@ -32,10 +35,21 @@ export class BellClapper {
     const pivot = [center[0] + up[0] * this.pivotHeight, center[2] + up[2] * this.pivotHeight];
     const last = this.samples[this.samples.length - 1];
     if (last && time <= last.time) return;
-    if (last && time - last.time > MAX_SAMPLE_GAP) this.samples = [];
-    this.samples.push({ time, pivot, tilt });
+    if (!last || time - last.time > MAX_SAMPLE_GAP) {
+      this.samples = [];
+      this.filtered = { pivot: [pivot, pivot], tilt: [tilt, tilt] };
+    } else {
+      const a = this.inertia > 0 ? 1 - Math.exp(-(time - last.time) / this.inertia) : 1;
+      const smooth = ([first, second], target) => {
+        const next = first.map((v, i) => v + (target[i] - v) * a);
+        return [next, second.map((v, i) => v + (next[i] - v) * a)];
+      };
+      this.filtered = { pivot: smooth(this.filtered.pivot, pivot), tilt: smooth(this.filtered.tilt, tilt) };
+    }
+    const smoothedTilt = this.filtered.tilt[1];
+    this.samples.push({ time, pivot: this.filtered.pivot[1], tilt: smoothedTilt });
     if (this.samples.length > 3) this.samples.shift();
-    this.tilt = tilt;
+    this.tilt = smoothedTilt;
 
     // 以最近三次取樣的差分估計速度與加速度（取樣時間不一定均勻）
     if (this.samples.length >= 2) {
@@ -55,6 +69,7 @@ export class BellClapper {
   // 海況突然改變時呼叫：重新開始估計速度與加速度，避免把海面的跳動當成劇烈搖晃
   resetMotion() {
     this.samples = [];
+    this.filtered = null;
     this.tiltRate = [0, 0];
     this.pivotAcceleration = [0, 0];
   }
