@@ -45,7 +45,8 @@ export class OceanSurface {
     gl.bindVertexArray(null);
   }
 
-  draw({ camera, simulation, sky, environment, foamDetail, scatterColor, foamBias, maxDistance }) {
+  // buoy：{ probe, probeIndex, anchor, foam, lampIntensity }，浮標的倒影與吃水線泡沫圈用
+  draw({ camera, simulation, sky, environment, foamDetail, scatterColor, foamBias, maxDistance, buoy, time }) {
     const { gl } = this;
     // 網格頂端對齊地平線在畫面上的位置（畫面傾斜時取最高點）
     // 往上看時地平線可能在畫面下方，往下看時則在畫面上方之外，都要限制在合理範圍
@@ -63,10 +64,18 @@ export class OceanSurface {
       .set('u_maxDistance', maxDistance)
       .set('u_scatterColor', scatterColor)
       .set('u_foamBias', foamBias)
-      .set('u_roughness', 0.045);
+      .set('u_roughness', 0.045)
+      .set('u_buoyProbe', buoy.probeIndex)
+      .set('u_buoyAnchor', buoy.anchor)
+      .set('u_buoyFoam', buoy.foam)
+      .set('u_lampIntensity', buoy.lampIntensity)
+      .set('u_time', time);
     setEnvironmentUniforms(program, environment);
     const unit = simulation.bindTextures(program, 0);
-    program.tex('u_sky', sky.texture, unit).tex('u_foamDetail', foamDetail, unit + 1);
+    program
+      .tex('u_sky', sky.texture, unit)
+      .tex('u_foamDetail', foamDetail, unit + 1)
+      .tex('u_probe', buoy.probe, unit + 2);
 
     gl.enable(gl.DEPTH_TEST);
     gl.depthFunc(gl.LESS);

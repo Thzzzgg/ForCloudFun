@@ -3,6 +3,14 @@ import { setEnvironmentUniforms } from './sky.js';
 
 const SEGMENTS = 36;
 const LAMP_BRIGHTNESS = 33; // 燈號亮起時在畫面上的亮度（曝光後），白天夜晚都一樣
+export const BUOY_FOOTPRINT = 1.6; // 浮標底面大小：取樣這個範圍的海面平均，過濾掉小波紋
+
+// 吃水線泡沫的強度（0～1）：浪越大，浮標起伏越劇烈，攪出的泡沫越多；平靜時幾乎沒有
+export function buoyFoamAmount(significantHeight) {
+  const t = Math.min(Math.max((significantHeight - 0.3) / 2.2, 0), 1);
+  return t * t * (3 - 2 * t);
+}
+
 const COLORS = {
   hull: [0.03, 0.03, 0.035],    // 水下的防污漆
   red: [0.5, 0.03, 0.02],
@@ -90,21 +98,27 @@ export class Buoy {
     gl.bindVertexArray(null);
   }
 
-  draw({ camera, simulation, sky, environment, time }) {
-    const { gl } = this;
-    // 燈號：每 4 秒閃一次
+  // 燈號在畫面上的亮度：每 4 秒閃一次（海面的倒影也用它）
+  static lampIntensity(time) {
     const phase = time % 4;
     const flash = Math.min(phase / 0.05, 1) * (1 - Math.min(Math.max((phase - 0.45) / 0.1, 0), 1));
+    return LAMP_BRIGHTNESS * (0.005 + flash);
+  }
+
+  // contactFoam：吃水線泡沫的強度（0～1）
+  draw({ camera, simulation, sky, environment, foamDetail, contactFoam, time }) {
+    const { gl } = this;
     const program = this.program.use()
       .set('u_viewProjection', camera.viewProjection)
       .set('u_anchor', this.anchor)
-      .set('u_footprint', 1.6)
+      .set('u_footprint', BUOY_FOOTPRINT)
       .set('u_time', time)
       .set('u_camPos', camera.position)
-      .set('u_lampIntensity', LAMP_BRIGHTNESS * (0.005 + flash));
+      .set('u_lampIntensity', Buoy.lampIntensity(time))
+      .set('u_contactFoam', contactFoam);
     setEnvironmentUniforms(program, environment);
     const unit = simulation.bindTextures(program, 0);
-    program.tex('u_sky', sky.texture, unit);
+    program.tex('u_sky', sky.texture, unit).tex('u_foamDetail', foamDetail, unit + 1);
 
     gl.enable(gl.DEPTH_TEST);
     gl.bindVertexArray(this.vao);
