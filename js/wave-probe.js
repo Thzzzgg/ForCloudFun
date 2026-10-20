@@ -18,10 +18,12 @@ export class WaveProbe {
     this.data = new Float32Array(MAX_POINTS * 2 * 4);
     // 最近一次讀回的結果：[{ displacement: [x, y, z], slope: [∂h/∂x, ∂h/∂z] }]，尚未讀回時為空陣列
     this.results = [];
+    // 這份結果是在哪個動畫時間取樣的（讀回會晚幾幀，而且不一定每幀都有）
+    this.resultsTime = 0;
   }
 
-  // points：[{ x, z, footprint }]，最多 MAX_POINTS 個；每幀呼叫一次
-  sample(simulation, points) {
+  // points：[{ x, z, footprint }]，最多 MAX_POINTS 個；time 為目前的動畫時間；每幀呼叫一次
+  sample(simulation, points, time = 0) {
     const { gl } = this;
     this.collect();
     const slot = this.slots.find((s) => !s.fence);
@@ -48,6 +50,7 @@ export class WaveProbe {
     slot.fence = gl.fenceSync(gl.SYNC_GPU_COMMANDS_COMPLETE, 0);
     slot.serial = ++this.serial;
     slot.count = Math.min(points.length, MAX_POINTS);
+    slot.time = time;
     gl.flush();
   }
 
@@ -64,6 +67,7 @@ export class WaveProbe {
       gl.bindBuffer(gl.PIXEL_PACK_BUFFER, slot.buffer);
       gl.getBufferSubData(gl.PIXEL_PACK_BUFFER, 0, this.data);
       gl.bindBuffer(gl.PIXEL_PACK_BUFFER, null);
+      this.resultsTime = slot.time;
       this.results = Array.from({ length: slot.count }, (_, i) => {
         const d = i * 4;
         const n = (MAX_POINTS + i) * 4;

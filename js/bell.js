@@ -25,12 +25,15 @@ export class BellClapper {
   }
 
   // 有新的浮標姿態時呼叫：center 為吃水線的中心 [x, y, z]，up 為浮標的上方向（單位向量）
-  addSample({ center, up }) {
+  // time 為這份姿態實際取樣的時間（秒）：讀回的資料會晚幾幀、不一定每幀都有，
+  // 用到達的時間差分會算出假的加速度尖峰，把鐘錘踢響
+  addSample({ center, up }, time) {
     const tilt = [up[0] / up[1], up[2] / up[1]];
     const pivot = [center[0] + up[0] * this.pivotHeight, center[2] + up[2] * this.pivotHeight];
     const last = this.samples[this.samples.length - 1];
-    if (last && this.clock - last.time > MAX_SAMPLE_GAP) this.samples = [];
-    this.samples.push({ time: this.clock, pivot, tilt });
+    if (last && time <= last.time) return;
+    if (last && time - last.time > MAX_SAMPLE_GAP) this.samples = [];
+    this.samples.push({ time, pivot, tilt });
     if (this.samples.length > 3) this.samples.shift();
     this.tilt = tilt;
 
@@ -47,6 +50,13 @@ export class BellClapper {
         this.pivotAcceleration = scale(sub(v1, v0), 2 / (dt0 + dt));
       }
     }
+  }
+
+  // 海況突然改變時呼叫：重新開始估計速度與加速度，避免把海面的跳動當成劇烈搖晃
+  resetMotion() {
+    this.samples = [];
+    this.tiltRate = [0, 0];
+    this.pivotAcceleration = [0, 0];
   }
 
   // 每幀呼叫，回傳這段時間內鐘錘撞擊的速度（m/s）
