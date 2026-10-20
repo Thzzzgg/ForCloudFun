@@ -1,6 +1,8 @@
 // 航道浮標：用旋轉剖面線產生幾何，位置與傾斜由頂點著色器依海面計算
+import { setEnvironmentUniforms } from './sky.js';
 
 const SEGMENTS = 36;
+const LAMP_BRIGHTNESS = 33; // 燈號亮起時在畫面上的亮度（曝光後），白天夜晚都一樣
 const COLORS = {
   hull: [0.03, 0.03, 0.035],    // 水下的防污漆
   red: [0.5, 0.03, 0.02],
@@ -88,7 +90,7 @@ export class Buoy {
     gl.bindVertexArray(null);
   }
 
-  draw({ camera, simulation, sky, sunDir, sunRadiance, time, fogDensity }) {
+  draw({ camera, simulation, sky, environment, time }) {
     const { gl } = this;
     // 燈號：每 4 秒閃一次
     const phase = time % 4;
@@ -99,10 +101,8 @@ export class Buoy {
       .set('u_footprint', 1.6)
       .set('u_time', time)
       .set('u_camPos', camera.position)
-      .set('u_sunDir', sunDir)
-      .set('u_sunColor', sunRadiance)
-      .set('u_lampIntensity', 0.3 + flash * 60)
-      .set('u_fogDensity', fogDensity);
+      .set('u_lampIntensity', LAMP_BRIGHTNESS * (0.005 + flash));
+    setEnvironmentUniforms(program, environment);
     const unit = simulation.bindTextures(program, 0);
     program.tex('u_sky', sky.texture, unit);
 

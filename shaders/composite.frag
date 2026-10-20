@@ -1,13 +1,15 @@
 #version 300 es
-// 最終合成：HDR 畫面 + 光暈 → 曝光 → ACES 色調映射 → sRGB，再加上輕微暗角與抖色避免色帶
+// 最終合成：HDR 畫面 × 自動曝光 + 光暈（已曝光）→ ACES 色調映射 → sRGB，再加上輕微暗角與抖色避免色帶
 precision highp float;
 precision highp sampler2D;
+
+#include "common.glsl"
 
 in vec2 v_uv;
 
 uniform sampler2D u_scene;
 uniform sampler2D u_bloom;
-uniform float u_exposure;
+uniform sampler2D u_sky;     // 用來計算自動曝光
 uniform float u_bloomStrength;
 uniform float u_time;
 
@@ -41,8 +43,8 @@ float hash(vec2 p) {
 }
 
 void main() {
-  vec3 hdr = texture(u_scene, v_uv).rgb + texture(u_bloom, v_uv).rgb * u_bloomStrength;
-  vec3 color = linearToSrgb(acesFitted(hdr * u_exposure));
+  vec3 exposed = texture(u_scene, v_uv).rgb * autoExposure(u_sky) + texture(u_bloom, v_uv).rgb * u_bloomStrength;
+  vec3 color = linearToSrgb(acesFitted(exposed));
   vec2 q = v_uv - 0.5;
   color *= 1.0 - dot(q, q) * 0.3;
   color += (hash(gl_FragCoord.xy + fract(u_time) * 61.0) - 0.5) / 255.0;

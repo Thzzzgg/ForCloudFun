@@ -24,6 +24,18 @@ vec3 skyAmbient(sampler2D sky) {
   return textureLod(sky, vec2(0.5), 16.0).rgb;
 }
 
+float luminance(vec3 c) {
+  return dot(c, vec3(0.2126, 0.7152, 0.0722));
+}
+
+// 自動曝光：依天空平均亮度只做部分適應（指數 0.75），夜晚的畫面仍然比白天暗
+// EXPOSURE_KEY 讓晴朗的下午 4 點曝光值約為 0.55
+const float EXPOSURE_KEY = 0.365;
+float autoExposure(sampler2D sky) {
+  float lum = max(luminance(skyAmbient(sky)), 1e-7);
+  return clamp(EXPOSURE_KEY * pow(lum, -0.75), 0.1, 45.0);
+}
+
 // 大氣透視：距離越遠越融入同方位的地平線天色
 vec3 applyAerialPerspective(vec3 color, vec3 viewDir, float dist, sampler2D sky, float density) {
   vec3 horizonDir = normalize(vec3(viewDir.x, 0.0, viewDir.z));

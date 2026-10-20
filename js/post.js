@@ -75,7 +75,8 @@ export class PostProcess {
     }
   }
 
-  render({ exposure, bloomStrength, time }) {
+  // sky 為含雲的天空貼圖，曝光由它的平均亮度決定（見 common.glsl 的 autoExposure）
+  render({ sky, bloomStrength, time }) {
     const { gl, programs, bloom } = this;
     gl.disable(gl.DEPTH_TEST);
     gl.disable(gl.BLEND);
@@ -86,9 +87,10 @@ export class PostProcess {
     gl.viewport(0, 0, first.texture.width, first.texture.height);
     programs.bloomPrefilter.use()
       .tex('u_source', this.sceneTexture, 0)
+      .tex('u_sky', sky, 1)
       .set('u_texel', [1 / this.width, 1 / this.height])
-      .set('u_threshold', 1.6)
-      .set('u_knee', 0.8);
+      .set('u_threshold', 0.9)
+      .set('u_knee', 0.45);
     drawFullscreen(gl);
 
     // 2. 逐層縮小
@@ -120,7 +122,7 @@ export class PostProcess {
     programs.composite.use()
       .tex('u_scene', this.sceneTexture, 0)
       .tex('u_bloom', first.texture, 1)
-      .set('u_exposure', exposure)
+      .tex('u_sky', sky, 2)
       .set('u_bloomStrength', bloomStrength / bloom.length)
       .set('u_time', time);
     drawFullscreen(gl);

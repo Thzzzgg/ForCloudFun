@@ -1,17 +1,18 @@
 #version 300 es
-// 海面著色：天空反射（Fresnel）、太陽高光（GGX）、次表面散射、白浪泡沫與大氣透視
+// 海面著色：天空反射（Fresnel）、太陽與月亮的高光（GGX）、次表面散射、白浪泡沫、雲影與大氣透視
 precision highp float;
 precision highp sampler2D;
 
 #include "common.glsl"
+#include "clouds.glsl"
 
 in vec3 v_worldPos;
 in vec2 v_restXZ;
 in float v_height;
 
 uniform vec3 u_camPos;
-uniform vec3 u_sunDir;
-uniform vec3 u_sunColor;
+uniform vec3 u_lightDir[2];      // 太陽、月亮的方向
+uniform vec3 u_lightColor[2];    // 穿過大氣後的光，在地平線下為 0
 uniform vec4 u_lengths;          // 四層海面區塊的邊長（公尺）
 uniform sampler2D u_displacement0;
 uniform sampler2D u_displacement1;
@@ -25,7 +26,7 @@ uniform sampler2D u_slopeVariance0;
 uniform sampler2D u_slopeVariance1;
 uniform sampler2D u_slopeVariance2;
 uniform sampler2D u_slopeVariance3;
-uniform sampler2D u_sky;
+uniform sampler2D u_sky;         // 含雲的天空
 uniform sampler2D u_foamDetail;
 uniform vec3 u_scatterColor;     // 海水散射顏色（線性色彩空間）
 uniform float u_foamBias;        // 紊流值低於此門檻的地方產生泡沫（由泡沫量與風速決定）
@@ -63,14 +64,12 @@ void main() {
   vec3 toCamera = u_camPos - v_worldPos;
   float dist = length(toCamera);
   vec3 V = toCamera / dist;
-  vec3 L = u_sunDir;
 
   // 遠處掠射角時，部分法線會背對視線，往視線方向修正
   float facing = dot(normal, V);
   if (facing < 0.05) normal = normalize(normal + V * (0.05 - facing));
 
   float NdotV = clamp(dot(normal, V), 1e-3, 1.0);
-  float NdotL = clamp(dot(normal, L), 0.0, 1.0);
   float a2 = clamp(u_roughness * u_roughness + variance, 1e-4, 1.0);
   float alpha = sqrt(a2);
 
@@ -80,24 +79,34 @@ void main() {
   R.y = abs(R.y);
   vec3 reflection = sampleSky(u_sky, normalize(R), clamp(log2(alpha * 48.0), 0.0, 6.0));
 
-  // 太陽高光：GGX 微表面模型
-  vec3 H = normalize(L + V);
-  float NdotH = max(dot(normal, H), 0.0);
-  float VdotH = max(dot(V, H), 0.0);
-  float denom = NdotH * NdotH * (a2 - 1.0) + 1.0;
-  float D = a2 / (PI * denom * denom);
-  float k = alpha * 0.5;
-  float visibility = 1.0 / ((NdotL * (1.0 - k) + k) * (NdotV * (1.0 - k) + k));
-  float fresnelH = 0.02 + 0.98 * pow(1.0 - VdotH, 5.0);
-  vec3 specular = u_sunColor * D * visibility * fresnelH * NdotL * 0.25;
-
-  // 次表面散射：浪峰背光時透出的青綠色，加上正面與環境的散射
   vec3 ambient = skyAmbient(u_sky);
   float crest = max(v_height, 0.0);
-  float backLight = pow(max(dot(L, -V), 0.0), 4.0) * pow(0.5 - 0.5 * dot(L, normal), 3.0);
-  vec3 scatter = (2.5 * crest * backLight + 0.06 * NdotV * NdotV) * u_scatterColor * u_sunColor
-    + 0.02 * NdotL * u_scatterColor * u_sunColor
-    + 0.35 * u_scatterColor * ambient;
+  vec3 foamNormal = normalize(mix(normal, vec3(0.0, 1.0, 0.0), 0.25));
+  vec3 specular = vec3(0.0);
+  vec3 scatter = 0.35 * u_scatterColor * ambient;
+  vec3 foamLight = ambient;
+  for (int i = 0; i < 2; i++) {
+    if (u_lightColor[i] == vec3(0.0)) continue;
+    vec3 L = u_lightDir[i];
+    vec3 lightColor = u_lightColor[i] * cloudShadow(v_worldPos, L);
+    float NdotL = clamp(dot(normal, L), 0.0, 1.0);
+
+    // 高光：GGX 微表面模型
+    vec3 H = normalize(L + V);
+    float NdotH = max(dot(normal, H), 0.0);
+    float VdotH = max(dot(V, H), 0.0);
+    float denom = NdotH * NdotH * (a2 - 1.0) + 1.0;
+    float D = a2 / (PI * denom * denom);
+    float k = alpha * 0.5;
+    float visibility = 1.0 / ((NdotL * (1.0 - k) + k) * (NdotV * (1.0 - k) + k));
+    float fresnelH = 0.02 + 0.98 * pow(1.0 - VdotH, 5.0);
+    specular += lightColor * D * visibility * fresnelH * NdotL * 0.25;
+
+    // 次表面散射：浪峰背光時透出的青綠色，加上正面的散射
+    float backLight = pow(max(dot(L, -V), 0.0), 4.0) * pow(0.5 - 0.5 * dot(L, normal), 3.0);
+    scatter += (2.5 * crest * backLight + 0.06 * NdotV * NdotV + 0.02 * NdotL) * u_scatterColor * lightColor;
+    foamLight += lightColor * max(dot(foamNormal, L), 0.0) / PI;
+  }
 
   vec3 color = (1.0 - fresnel) * scatter + fresnel * reflection + specular;
 
@@ -107,9 +116,7 @@ void main() {
   float detail = texture(u_foamDetail, detailUV).r * 0.65 + texture(u_foamDetail, detailUV * 2.7 + 0.37).g * 0.35;
   float threshold = 1.0 - 0.8 * coverage;
   float foamMask = smoothstep(threshold, threshold + 0.3, detail) * smoothstep(0.0, 0.4, coverage) * 0.88;
-  vec3 foamNormal = normalize(mix(normal, vec3(0.0, 1.0, 0.0), 0.25));
-  vec3 foamColor = vec3(0.75) * (u_sunColor * max(dot(foamNormal, L), 0.0) / PI + ambient);
-  color = mix(color, foamColor, foamMask);
+  color = mix(color, vec3(0.75) * foamLight, foamMask);
 
   color = applyAerialPerspective(color, -V, dist, u_sky, u_fogDensity);
   fragColor = vec4(min(color, vec3(5000.0)), 1.0);

@@ -1,26 +1,27 @@
 #version 300 es
-// 光暈第一步：縮小一半並只保留高亮部分；用 Karis 平均抑制單點過亮造成的閃爍
+// 光暈第一步：套用曝光、縮小一半並只保留高亮部分；用 Karis 平均抑制單點過亮造成的閃爍
+// 曝光後才取門檻，白天與夜晚的光暈強弱一致
 precision highp float;
 precision highp sampler2D;
+
+#include "common.glsl"
 
 in vec2 v_uv;
 
 uniform sampler2D u_source;
+uniform sampler2D u_sky;     // 用來計算自動曝光
 uniform vec2 u_texel;        // 來源貼圖的一個像素大小
-uniform float u_threshold;
+uniform float u_threshold;   // 曝光後的亮度門檻
 uniform float u_knee;
 
 out vec4 fragColor;
 
-float luminance(vec3 c) {
-  return dot(c, vec3(0.2126, 0.7152, 0.0722));
-}
-
 void main() {
-  vec3 a = texture(u_source, v_uv + u_texel * vec2(-1.0, -1.0)).rgb;
-  vec3 b = texture(u_source, v_uv + u_texel * vec2(1.0, -1.0)).rgb;
-  vec3 c = texture(u_source, v_uv + u_texel * vec2(-1.0, 1.0)).rgb;
-  vec3 d = texture(u_source, v_uv + u_texel * vec2(1.0, 1.0)).rgb;
+  float exposure = autoExposure(u_sky);
+  vec3 a = texture(u_source, v_uv + u_texel * vec2(-1.0, -1.0)).rgb * exposure;
+  vec3 b = texture(u_source, v_uv + u_texel * vec2(1.0, -1.0)).rgb * exposure;
+  vec3 c = texture(u_source, v_uv + u_texel * vec2(-1.0, 1.0)).rgb * exposure;
+  vec3 d = texture(u_source, v_uv + u_texel * vec2(1.0, 1.0)).rgb * exposure;
   float wa = 1.0 / (1.0 + luminance(a));
   float wb = 1.0 / (1.0 + luminance(b));
   float wc = 1.0 / (1.0 + luminance(c));

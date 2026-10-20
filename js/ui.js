@@ -1,8 +1,12 @@
 // 參數控制面板：把滑桿、顏色、音效與畫質設定綁定到參數物件
+import { formatTime, periodName } from './celestial.js';
 
 const direction = (v) => `<span class="arrow" style="transform: rotate(${v}deg)">↑</span>${Math.round(v)}°`;
 
 const FORMATTERS = {
+  time: (v) => `${formatTime(v)} ${periodName(v)}`,
+  cloudCoverage: (v) => (v > 0 ? `${Math.round(v * 100)}%` : '無'),
+  visibility: (v) => `${Math.round(v)} km`,
   windSpeed: (v) => `${v.toFixed(1)} m/s`,
   windDirection: direction,
   heightScale: (v) => `${v.toFixed(2)}×`,
@@ -18,6 +22,7 @@ export function createControls(params, { onChange, onAudioToggle, onReset, onRes
   const panel = document.getElementById('panel');
   const toggle = document.getElementById('panel-toggle');
   const audioButton = document.getElementById('audioToggle');
+  const timelapseButton = document.getElementById('timelapse');
   const outputs = new Map([...document.querySelectorAll('output[data-for]')].map((o) => [o.dataset.for, o]));
 
   const setCollapsed = (collapsed) => {
@@ -33,12 +38,25 @@ export function createControls(params, { onChange, onAudioToggle, onReset, onRes
     if (output) output.innerHTML = FORMATTERS[key](params[key]);
   };
 
+  // 縮時播放：時間自動前進，手動拖動時間滑桿時停止
+  const showTimelapse = () => {
+    timelapseButton.setAttribute('aria-pressed', String(params.timelapse));
+    timelapseButton.textContent = params.timelapse ? '停止縮時播放' : '縮時播放';
+  };
+  const setTimelapse = (on) => {
+    params.timelapse = on;
+    showTimelapse();
+    onChange('timelapse');
+  };
+  timelapseButton.addEventListener('click', () => setTimelapse(!params.timelapse));
+
   for (const key of Object.keys(FORMATTERS)) {
     const input = document.getElementById(key);
     input.addEventListener('input', () => {
       params[key] = parseFloat(input.value);
       showValue(key);
       onChange(key);
+      if (key === 'time' && params.timelapse) setTimelapse(false);
     });
   }
 
@@ -102,15 +120,19 @@ export function createControls(params, { onChange, onAudioToggle, onReset, onRes
     sync();
   });
 
+  // 程式改變參數後（例如縮時播放推進時間）更新對應的滑桿與數值
+  function refresh(key) {
+    document.getElementById(key).value = params[key];
+    showValue(key);
+  }
+
   // 把參數值同步回介面
   function sync() {
-    for (const key of Object.keys(FORMATTERS)) {
-      document.getElementById(key).value = params[key];
-      showValue(key);
-    }
+    for (const key of Object.keys(FORMATTERS)) refresh(key);
     color.value = params.waterColor;
     quality.value = params.quality;
     showViewMode();
+    showTimelapse();
   }
   sync();
 
@@ -120,6 +142,7 @@ export function createControls(params, { onChange, onAudioToggle, onReset, onRes
   const performanceFields = new Map([...document.querySelectorAll('[data-perf]')].map((el) => [el.dataset.perf, el]));
   return {
     sync,
+    refresh,
     disableAudio() {
       audioButton.disabled = true;
       audioButton.textContent = '此瀏覽器不支援音效';
