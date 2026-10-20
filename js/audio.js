@@ -1,7 +1,15 @@
 // 海浪環境音效：以 Web Audio 即時合成，不需要任何音檔
-// 底噪（遠方海浪的低頻隆隆聲）＋ 浪潮起伏 ＋ 依浪週期隨機觸發的碎浪聲 ＋ 隨風速增強的風聲
+// 底噪（遠方海浪的低頻隆隆聲）＋ 浪潮起伏 ＋ 依浪週期隨機觸發的碎浪聲 ＋ 隨風速增強的風聲 ＋ 浮標的鐘聲
 
 const NOISE_SECONDS = 6;
+
+// 浮標的鐘：主音（Hz）與泛音 [相對主音的倍率, 相對音量, 衰減時間（秒）]
+// 鐘的泛音不是整數倍（例如小三度的 1.2 倍），聽起來才像鐘
+const BELL_PITCH = 380;
+const BELL_PARTIALS = [
+  [0.5, 0.6, 7], [1, 0.55, 5], [1.2, 0.5, 4.5], [1.5, 0.2, 3], [2, 0.65, 3.5],
+  [2.5, 0.25, 2], [2.67, 0.2, 1.6], [3, 0.15, 1.2], [4, 0.1, 0.8],
+];
 
 function createNoiseBuffer(ctx, color) {
   const length = Math.floor(ctx.sampleRate * NOISE_SECONDS);
@@ -204,6 +212,68 @@ export class OceanAudio {
     if (Math.random() < 0.3 + 0.55 * Math.min(intensity, 1)) {
       this.scheduleBreak(time + rise * (0.6 + Math.random() * 0.4), intensity);
     }
+  }
+
+  // 鐘聲：strength 為敲擊力道（0～1），越用力高音越多、餘音越長；
+  // pan 為聲音的左右位置（-1～1），distance 為與鏡頭的距離（公尺），越遠越小聲、高音被空氣吸收得越多
+  ringBell(strength, { pan = 0, distance = 30 } = {}) {
+    if (!this.ctx || !this.enabled) return;
+    const { ctx } = this;
+    const time = ctx.currentTime + 0.02;
+    const output = ctx.createGain();
+    output.gain.value = (0.6 * (0.25 + 0.75 * strength)) / (1 + distance / 20);
+    const air = ctx.createBiquadFilter();
+    air.type = 'lowpass';
+    air.frequency.value = 9000 / (1 + distance / 80);
+    output.connect(air);
+    let last = air;
+    if (ctx.createStereoPanner) {
+      last = ctx.createStereoPanner();
+      last.pan.value = pan;
+      air.connect(last);
+    }
+    last.connect(this.master);
+
+    let longest = null;
+    let longestEnd = 0;
+    for (const [ratio, amplitude, decay] of BELL_PARTIALS) {
+      const level = amplitude * (ratio > 2 ? 0.3 + 0.7 * strength : 1) * 0.5;
+      const end = time + decay * (0.6 + 0.4 * strength);
+      // 每個泛音由兩個略微走音的正弦波組成，產生鐘聲特有的嗡嗡起伏
+      for (const detune of [-0.7, 0.7]) {
+        const oscillator = ctx.createOscillator();
+        oscillator.frequency.value = BELL_PITCH * ratio + detune * Math.sqrt(ratio);
+        const envelope = ctx.createGain();
+        envelope.gain.setValueAtTime(0.0001, time);
+        envelope.gain.exponentialRampToValueAtTime(level, time + 0.004);
+        envelope.gain.exponentialRampToValueAtTime(0.0001, end);
+        oscillator.connect(envelope).connect(output);
+        oscillator.start(time);
+        oscillator.stop(end + 0.05);
+        if (end > longestEnd) {
+          longest = oscillator;
+          longestEnd = end;
+        }
+      }
+    }
+
+    // 鐘錘撞上鐘的「叮」：很短的高頻噪音
+    const click = ctx.createBufferSource();
+    click.buffer = this.buffers.white;
+    const band = ctx.createBiquadFilter();
+    band.type = 'bandpass';
+    band.frequency.value = 4200;
+    band.Q.value = 1.5;
+    const clickGain = ctx.createGain();
+    clickGain.gain.setValueAtTime(0.0001, time);
+    clickGain.gain.exponentialRampToValueAtTime(0.05 + 0.25 * strength, time + 0.002);
+    clickGain.gain.exponentialRampToValueAtTime(0.0001, time + 0.03);
+    click.connect(band).connect(clickGain).connect(output);
+    click.start(time, Math.random() * (NOISE_SECONDS - 0.1));
+    click.stop(time + 0.05);
+
+    // 最長的泛音結束後拆掉整串節點
+    longest.onended = () => last.disconnect();
   }
 
   // 碎浪：帶通噪音由高頻往低頻掃，加上泡沫的嘶嘶聲
