@@ -10,14 +10,19 @@ import { createFoamDetailTexture } from './textures.js';
 import { OceanAudio } from './audio.js';
 import { createControls } from './ui.js';
 import { createCamera, updateCamera } from './camera.js';
+import { CameraRig, orbitPosition } from './camera-rig.js';
+import { attachCameraInput } from './camera-input.js';
+import { WaveProbe } from './wave-probe.js';
 import { AdaptiveQuality } from './quality.js';
 
 const SHADERS = [
   'common.glsl', 'fullscreen.vert',
-  'spectrum-init.frag', 'spectrum-time.frag', 'fft.frag', 'assemble.frag',
+  'spectrum-init.frag', 'spectrum-time.frag', 'fft.frag', 'assemble.frag', 'probe.frag',
   'sky-precompute.frag', 'sky.frag', 'ocean.vert', 'ocean.frag', 'buoy.vert', 'buoy.frag',
   'bloom-prefilter.frag', 'bloom-down.frag', 'bloom-up.frag', 'composite.frag',
 ];
+
+const DEG = Math.PI / 180;
 
 const CONFIG = {
   // 四層海面區塊：邊長（公尺）與該層負責的最長波長；最大一層負責湧浪與最長的風浪
@@ -31,8 +36,12 @@ const CONFIG = {
   maxDistance: 20000, // 海面延伸到 20 公里外
   fogDensity: 1 / 9000,
   sun: { elevation: 24, azimuth: 32 },
-  camera: { pitch: -7, fovY: 50 },
   buoyAnchor: [-6, -24],
+  // 預設視角（角度單位：度）：環繞浮標時從浮標後方略偏左看過去，讓陽光反射落在畫面右側
+  view: {
+    orbit: { yaw: 7, elevation: 8, distance: 28, fovY: 50 },
+    boat: { pitch: -4, fovY: 55 },
+  },
   exposure: 0.55,
   bloomStrength: 0.35,
 };
@@ -58,6 +67,7 @@ const DEFAULTS = {
   waterColor: '#0e6a77',
   volume: 0.6,
   quality: 'auto',
+  viewMode: 'orbit',
 };
 
 const SEA_STATE_KEYS = ['windSpeed', 'windDirection', 'heightScale', 'swellHeight', 'swellDirection', 'swellPeriod'];
@@ -90,6 +100,16 @@ function srgbHexToLinear(hex) {
   });
 }
 
+// 環繞中心是浮標中段；船停在預設環繞視角的鏡頭位置，面向浮標
+function createRig() {
+  const target = [CONFIG.buoyAnchor[0], 1, CONFIG.buoyAnchor[1]];
+  const { orbit: o, boat: b } = CONFIG.view;
+  const orbit = { yaw: o.yaw * DEG, elevation: o.elevation * DEG, distance: o.distance, fovY: o.fovY * DEG };
+  const [x, , z] = orbitPosition(target, orbit);
+  const boat = { x, z, yaw: orbit.yaw, pitch: b.pitch * DEG, fovY: b.fovY * DEG };
+  return new CameraRig({ target, orbit, boat });
+}
+
 function buildPrograms(gl, sources) {
   const fullscreen = (fragment) => new Program(gl, sources['fullscreen.vert'], sources[fragment], fragment);
   return {
@@ -97,6 +117,7 @@ function buildPrograms(gl, sources) {
     spectrumTime: fullscreen('spectrum-time.frag'),
     fft: fullscreen('fft.frag'),
     assemble: fullscreen('assemble.frag'),
+    probe: fullscreen('probe.frag'),
     skyPrecompute: fullscreen('sky-precompute.frag'),
     sky: fullscreen('sky.frag'),
     ocean: new Program(gl, sources['ocean.vert'], sources['ocean.frag'], 'ocean'),
@@ -123,8 +144,22 @@ async function main() {
   const foamDetail = createFoamDetailTexture(gl);
   const post = new PostProcess(gl, programs);
   const buoy = new Buoy(gl, programs.buoy, { anchor: CONFIG.buoyAnchor });
-  const camera = createCamera(CONFIG.camera);
+  const camera = createCamera({ fovY: CONFIG.view.orbit.fovY * DEG });
+  const rig = createRig();
+  const probe = new WaveProbe(gl, programs.probe);
   const audio = new OceanAudio();
+
+  // 第一次載入時提示操作方式，使用者開始操作或幾秒後自動淡出；觸控裝置沒有滾輪
+  const hint = document.getElementById('hint');
+  if (window.matchMedia('(pointer: coarse)').matches) hint.textContent = '拖曳畫面旋轉視角，雙指縮放';
+  let hintTimer = null;
+  let hintDismissed = false;
+  const hideHint = () => {
+    hintDismissed = true;
+    clearTimeout(hintTimer);
+    hint.classList.add('hidden');
+  };
+  attachCameraInput(canvas, rig, { onInteract: hideHint });
 
   let simulation = null;
   let surface = null;
@@ -137,14 +172,17 @@ async function main() {
     onChange(key) {
       if (key === 'quality') applyQuality();
       else if (key === 'volume') audio.setVolume(params.volume);
+      else if (key === 'viewMode') rig.setMode(params.viewMode);
       else if (SEA_STATE_KEYS.includes(key)) seaStateDirty = true;
     },
     onAudioToggle: () => audio.setEnabled(!audio.enabled),
+    onResetView: () => rig.reset(),
     onReset() {
       const previousQuality = params.quality;
       Object.assign(params, DEFAULTS);
       seaStateDirty = true;
       audio.setVolume(params.volume);
+      rig.resetAll();
       if (params.quality !== previousQuality) applyQuality();
     },
   });
@@ -253,6 +291,8 @@ async function main() {
         if (adaptive?.evaluate(fps)) applyAdaptiveChange();
         return getQuality();
       },
+      rig,
+      getProbe: () => probe.results,
     };
   }
 
@@ -275,7 +315,6 @@ async function main() {
 
   let time = 0;
   let last = performance.now();
-  let cameraHeight = null;
   let fpsFrames = 0;
   let fpsElapsed = 0;
   let firstFrame = true;
@@ -298,15 +337,19 @@ async function main() {
     resize();
     if (seaStateDirty) updateSeaState();
 
-    // 浪越大鏡頭越高，避免被浪淹沒
-    const targetHeight = Math.min(Math.max(2.2 + 1.5 * stats.significantHeight, 3.5), 30);
-    cameraHeight = cameraHeight === null
-      ? targetHeight
-      : cameraHeight + (targetHeight - cameraHeight) * (1 - Math.exp(-dt * 1.2));
-    camera.position[1] = cameraHeight;
+    // 視角：用前幾幀讀回的海面資料（非同步讀回會晚幾幀，鏡頭有平滑所以看不出來）
+    const [cameraWater = null, boatWater = null] = probe.results;
+    rig.setProbes(cameraWater, boatWater);
+    const pose = rig.update(dt, stats.significantHeight);
+    camera.position = pose.position;
+    camera.yaw = pose.yaw;
+    camera.pitch = pose.pitch;
+    camera.roll = pose.roll;
+    camera.baseFovY = pose.fovY;
     updateCamera(camera, canvas.width / canvas.height);
 
     simulation.update(time, dt, params.choppiness);
+    probe.sample(simulation, rig.probePoints());
 
     post.beginScene();
     sky.draw(camera, sunDir, sunRadiance);
@@ -332,6 +375,10 @@ async function main() {
     if (firstFrame) {
       firstFrame = false;
       statusBox.classList.add('hidden');
+      if (!hintDismissed) {
+        hint.classList.remove('hidden');
+        hintTimer = setTimeout(hideHint, 6000);
+      }
     }
     requestAnimationFrame(frame);
   }

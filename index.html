@@ -9,7 +9,9 @@
   <link rel="stylesheet" href="css/style.css">
 </head>
 <body>
-  <canvas id="ocean" aria-label="即時模擬的海面畫面"></canvas>
+  <canvas id="ocean" tabindex="0" aria-label="即時模擬的海面畫面：拖曳旋轉視角，滾輪或雙指縮放，方向鍵也可以轉動視角"></canvas>
+
+  <div id="hint" class="hint-toast hidden" aria-hidden="true">拖曳畫面旋轉視角，滾輪或雙指縮放</div>
 
   <div id="status" class="status" role="status">
     <div class="spinner" aria-hidden="true"></div>
@@ -23,6 +25,16 @@
     </div>
 
     <div id="panel-body" class="panel-body">
+      <section>
+        <h2>視角</h2>
+        <div class="segmented" role="radiogroup" aria-label="視角模式">
+          <button type="button" role="radio" data-view="orbit">環繞浮標</button>
+          <button type="button" role="radio" data-view="boat">船上視角</button>
+        </div>
+        <button id="resetView" class="button secondary" type="button">重設視角</button>
+        <p class="hint">拖曳畫面旋轉，滾輪或雙指縮放，雙擊回到預設視角。船上視角會隨浪起伏、搖晃。</p>
+      </section>
+
       <section>
         <h2>風與浪</h2>
         <div class="control">
