@@ -3,7 +3,9 @@ import { createContext, loadShaderSources, Program, UserFacingError } from './gl
 import { waveStatistics } from './spectrum.js';
 import { OceanSimulation } from './ocean-sim.js';
 import { OceanSurface } from './ocean-surface.js';
-import { Sky, sunDirection, sunColor } from './sky.js';
+import { Sky, skyLighting } from './sky.js';
+import { sunDirection, moonDirection, skyRotation } from './celestial.js';
+import { cloudThreshold, fogDensity, hazeDepth } from './weather.js';
 import { Buoy } from './buoy.js';
 import { PostProcess } from './post.js';
 import { createFoamDetailTexture } from './textures.js';
@@ -16,9 +18,10 @@ import { WaveProbe } from './wave-probe.js';
 import { AdaptiveQuality } from './quality.js';
 
 const SHADERS = [
-  'common.glsl', 'fullscreen.vert',
+  'common.glsl', 'atmosphere.glsl', 'clouds.glsl', 'fullscreen.vert',
   'spectrum-init.frag', 'spectrum-time.frag', 'fft.frag', 'assemble.frag', 'probe.frag',
-  'sky-precompute.frag', 'sky.frag', 'ocean.vert', 'ocean.frag', 'buoy.vert', 'buoy.frag',
+  'sky-transmittance.frag', 'sky-multiscatter.frag', 'sky-precompute.frag', 'sky-clouds.frag', 'sky.frag',
+  'ocean.vert', 'ocean.frag', 'buoy.vert', 'buoy.frag',
   'bloom-prefilter.frag', 'bloom-down.frag', 'bloom-up.frag', 'composite.frag',
 ];
 
@@ -34,16 +37,16 @@ const CONFIG = {
   ],
   fetch: 100000, // 風區長度（公尺）
   maxDistance: 20000, // 海面延伸到 20 公里外
-  fogDensity: 1 / 9000,
-  sun: { elevation: 24, azimuth: 32 },
   buoyAnchor: [-6, -24],
   // 預設視角（角度單位：度）：環繞浮標時從浮標後方略偏左看過去，讓陽光反射落在畫面右側
   view: {
     orbit: { yaw: 7, elevation: 8, distance: 28, fovY: 50 },
     boat: { pitch: -4, fovY: 55 },
   },
-  exposure: 0.55,
   bloomStrength: 0.35,
+  timelapseRate: 1 / 6, // 縮時播放：每秒前進 10 分鐘（小時／秒）
+  skyUpdateInterval: 0.15, // 時間改變時重算大氣的最短間隔（秒），拖動滑桿時才不會卡頓
+  cloudWindFactor: 2, // 雲層高度的風比海面強，雲飄得比較快
 };
 
 const QUALITY = {
@@ -56,6 +59,10 @@ const QUALITY_TIERS = ['high', 'medium', 'low'].map((name) => ({ name, maxPixelR
 const AUTO_START_TIER = window.matchMedia('(pointer: coarse)').matches ? 'medium' : 'high';
 
 const DEFAULTS = {
+  time: 16, // 下午 4 點
+  timelapse: false,
+  cloudCoverage: 0,
+  visibility: 35, // 公里
   windSpeed: 10,
   windDirection: 160,
   heightScale: 1,
@@ -118,7 +125,10 @@ function buildPrograms(gl, sources) {
     fft: fullscreen('fft.frag'),
     assemble: fullscreen('assemble.frag'),
     probe: fullscreen('probe.frag'),
+    skyTransmittance: fullscreen('sky-transmittance.frag'),
+    skyMultiScattering: fullscreen('sky-multiscatter.frag'),
     skyPrecompute: fullscreen('sky-precompute.frag'),
+    skyClouds: fullscreen('sky-clouds.frag'),
     sky: fullscreen('sky.frag'),
     ocean: new Program(gl, sources['ocean.vert'], sources['ocean.frag'], 'ocean'),
     buoy: new Program(gl, sources['buoy.vert'], sources['buoy.frag'], 'buoy'),
@@ -137,10 +147,7 @@ async function main() {
   const programs = buildPrograms(gl, sources);
 
   const params = { ...DEFAULTS };
-  const sunDir = sunDirection(CONFIG.sun.elevation, CONFIG.sun.azimuth);
-  const sunRadiance = sunColor(sunDir);
   const sky = new Sky(gl, programs);
-  sky.precompute(sunDir);
   const foamDetail = createFoamDetailTexture(gl);
   const post = new PostProcess(gl, programs);
   const buoy = new Buoy(gl, programs.buoy, { anchor: CONFIG.buoyAnchor });
@@ -293,6 +300,9 @@ async function main() {
       },
       rig,
       getProbe: () => probe.results,
+      sky,
+      getEnvironment: () => environment,
+      getFrameCount: () => frameCount,
     };
   }
 
@@ -313,11 +323,54 @@ async function main() {
     showPerformance();
   }
 
+  // 時間與天氣：每幀算出太陽、月亮、光源與雲的狀態
+  // 大氣貼圖比較耗時，只在時間改變時重算，而且至少間隔 skyUpdateInterval，拖動滑桿時才不會卡頓
+  let environment = null;
+  let skyTime = null; // 大氣貼圖對應的時間
+  let lastSkyUpdate = -Infinity;
+  let shownMinute = null;
+  const cloudOffset = [0, 0];
+
+  function updateEnvironment(now, dt) {
+    if (params.timelapse) {
+      params.time = (params.time + dt * CONFIG.timelapseRate) % 24;
+      const minute = Math.floor(params.time * 60);
+      if (minute !== shownMinute) {
+        shownMinute = minute;
+        ui.refresh('time');
+      }
+    }
+    const sunDir = sunDirection(params.time);
+    const moonDir = moonDirection(params.time);
+    if (params.time !== skyTime && now - lastSkyUpdate >= CONFIG.skyUpdateInterval * 1000) {
+      sky.precompute(sunDir, moonDir);
+      skyTime = params.time;
+      lastSkyUpdate = now;
+    }
+    // 雲順著風向飄（風向與浪前進的方向相同，0° 朝向遠方）
+    const windAngle = params.windDirection * DEG;
+    const cloudDistance = params.windSpeed * CONFIG.cloudWindFactor * dt;
+    cloudOffset[0] += Math.sin(windAngle) * cloudDistance;
+    cloudOffset[1] -= Math.cos(windAngle) * cloudDistance;
+    const haze = hazeDepth(params.visibility);
+    environment = {
+      ...skyLighting(sunDir, moonDir, haze),
+      starRotation: skyRotation(params.time),
+      cloudCoverage: params.cloudCoverage,
+      cloudThreshold: cloudThreshold(params.cloudCoverage),
+      cloudOffset,
+      hazeDepth: haze,
+      fogDensity: fogDensity(params.visibility),
+    };
+    return environment;
+  }
+
   let time = 0;
   let last = performance.now();
   let fpsFrames = 0;
   let fpsElapsed = 0;
   let firstFrame = true;
+  let frameCount = 0; // 已畫完的幀數，除錯介面用來等待新的一幀
 
   function frame(now) {
     if (!running) return;
@@ -351,9 +404,11 @@ async function main() {
     simulation.update(time, dt, params.choppiness);
     probe.sample(simulation, rig.probePoints());
 
+    const env = updateEnvironment(now, dt);
+    sky.update(camera, env);
     post.beginScene();
-    sky.draw(camera, sunDir, sunRadiance);
-    const shared = { camera, simulation, sky, sunDir, sunRadiance, time, fogDensity: CONFIG.fogDensity };
+    sky.draw(camera, env, time);
+    const shared = { camera, simulation, sky, environment: env, time };
     surface.draw({
       ...shared,
       foamDetail,
@@ -363,7 +418,8 @@ async function main() {
     });
     buoy.draw(shared);
     post.endScene();
-    post.render({ exposure: CONFIG.exposure, bloomStrength: CONFIG.bloomStrength, time });
+    post.render({ sky: sky.texture, bloomStrength: CONFIG.bloomStrength, time });
+    frameCount++;
 
     fpsFrames++;
     fpsElapsed += elapsed;

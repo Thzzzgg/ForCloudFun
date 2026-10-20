@@ -1,5 +1,6 @@
 // 海面網格與繪製：網格固定在螢幕空間，由頂點著色器投射到海平面
 import { horizonNdcTop } from './camera.js';
+import { setEnvironmentUniforms } from './sky.js';
 
 const GRID_X_EXTENT = 1.5;    // 左右延伸到畫面外（NDC）
 const GRID_BOTTOM = -3.0;     // 往下延伸到畫面外，避免浪峰抬高時露出網格邊緣
@@ -44,7 +45,7 @@ export class OceanSurface {
     gl.bindVertexArray(null);
   }
 
-  draw({ camera, simulation, sky, foamDetail, sunDir, sunRadiance, scatterColor, foamBias, maxDistance, fogDensity }) {
+  draw({ camera, simulation, sky, environment, foamDetail, scatterColor, foamBias, maxDistance }) {
     const { gl } = this;
     // 網格頂端對齊地平線在畫面上的位置（畫面傾斜時取最高點）
     // 往上看時地平線可能在畫面下方，往下看時則在畫面上方之外，都要限制在合理範圍
@@ -60,12 +61,10 @@ export class OceanSurface {
       .set('u_gridMap', [GRID_X_EXTENT, GRID_BOTTOM, top, GRID_BOTTOM_SHARE])
       .set('u_gridStep', [1 / (this.columns - 1), 1 / (this.rows - 1)])
       .set('u_maxDistance', maxDistance)
-      .set('u_sunDir', sunDir)
-      .set('u_sunColor', sunRadiance)
       .set('u_scatterColor', scatterColor)
       .set('u_foamBias', foamBias)
-      .set('u_roughness', 0.045)
-      .set('u_fogDensity', fogDensity);
+      .set('u_roughness', 0.045);
+    setEnvironmentUniforms(program, environment);
     const unit = simulation.bindTextures(program, 0);
     program.tex('u_sky', sky.texture, unit).tex('u_foamDetail', foamDetail, unit + 1);
 

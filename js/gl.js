@@ -113,6 +113,7 @@ export class Program {
       case gl.INT:
       case gl.BOOL:
       case gl.SAMPLER_2D: gl.uniform1i(loc, value); break;
+      case gl.FLOAT_MAT3: gl.uniformMatrix3fv(loc, false, value); break;
       case gl.FLOAT_MAT4: gl.uniformMatrix4fv(loc, false, value); break;
       default: throw new Error(`不支援的 uniform 型別：${name}`);
     }
