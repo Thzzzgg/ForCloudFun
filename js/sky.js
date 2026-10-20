@@ -93,7 +93,8 @@ export function skyLighting(sunDir, moonDir, hazeDepth = 0) {
 }
 
 // 把光源、雲與霧的 uniform 設定到 program；shader 沒用到的 uniform 會被略過
-// env 由 skyLighting 的結果加上 cloudCoverage、cloudThreshold、cloudOffset、hazeDepth、fogDensity、starRotation 組成
+// env 由 skyLighting 的結果加上 cloudCoverage、cloudThreshold、cloudOffset、hazeDepth、fogDensity、starRotation
+// 與風（windDir、foamStreaks、streakDrift，見 js/storm.js）組成
 export function setEnvironmentUniforms(program, env) {
   return program
     .set('u_lightDir', env.lightDirs)
@@ -109,7 +110,10 @@ export function setEnvironmentUniforms(program, env) {
     .set('u_cloudThreshold', env.cloudThreshold)
     .set('u_cloudOffset', env.cloudOffset)
     .set('u_hazeDepth', env.hazeDepth)
-    .set('u_fogDensity', env.fogDensity);
+    .set('u_fogDensity', env.fogDensity)
+    .set('u_windDir', env.windDir)
+    .set('u_foamStreaks', env.foamStreaks)
+    .set('u_streakDrift', env.streakDrift);
 }
 
 function bindTarget(gl, target, texture) {

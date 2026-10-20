@@ -1,5 +1,5 @@
 // 海浪環境音效：以 Web Audio 即時合成，不需要任何音檔
-// 底噪（遠方海浪的低頻隆隆聲）＋ 浪潮起伏 ＋ 依浪週期隨機觸發的碎浪聲
+// 底噪（遠方海浪的低頻隆隆聲）＋ 浪潮起伏 ＋ 依浪週期隨機觸發的碎浪聲 ＋ 隨風速增強的風聲
 
 const NOISE_SECONDS = 6;
 
@@ -51,6 +51,8 @@ export class OceanAudio {
     this.volume = 0.6;
     this.intensity = 0.6;
     this.period = 6;
+    this.wind = 0; // 風聲強度（0～1）
+    this.howl = 0; // 暴風的呼嘯聲（0～1）
     this.timer = null;
   }
 
@@ -91,8 +93,25 @@ export class OceanAudio {
     this.swellGain.gain.value = 0.1;
     this.loop(this.buffers.pink).connect(this.swellFilter).connect(this.swellGain).connect(this.master);
 
+    // 風聲：粉紅噪音經帶通濾波，音量與音色隨陣風起伏；暴風時再加上一層窄頻的呼嘯聲
+    this.windFilter = ctx.createBiquadFilter();
+    this.windFilter.type = 'bandpass';
+    this.windFilter.frequency.value = 500;
+    this.windFilter.Q.value = 0.6;
+    this.windGain = ctx.createGain();
+    this.windGain.gain.value = 0;
+    this.loop(this.buffers.pink).connect(this.windFilter).connect(this.windGain).connect(this.master);
+    this.howlFilter = ctx.createBiquadFilter();
+    this.howlFilter.type = 'bandpass';
+    this.howlFilter.frequency.value = 800;
+    this.howlFilter.Q.value = 10;
+    this.howlGain = ctx.createGain();
+    this.howlGain.gain.value = 0;
+    this.loop(this.buffers.white).connect(this.howlFilter).connect(this.howlGain).connect(this.master);
+
     this.applyLevels(0);
     this.nextWave = ctx.currentTime + 0.3;
+    this.nextGust = ctx.currentTime;
   }
 
   loop(buffer) {
@@ -110,6 +129,7 @@ export class OceanAudio {
       this.enabled = true;
       this.master.gain.setTargetAtTime(this.volume, this.ctx.currentTime, 0.4);
       this.nextWave = Math.max(this.nextWave, this.ctx.currentTime + 0.2);
+      this.nextGust = Math.max(this.nextGust, this.ctx.currentTime);
       clearInterval(this.timer);
       this.timer = setInterval(() => this.schedule(), 200);
     } else if (this.ctx) {
@@ -134,6 +154,12 @@ export class OceanAudio {
     if (this.ctx) this.applyLevels(0.5);
   }
 
+  // 依風速調整風聲：微風時幾乎聽不到，蒲福 7 級（約 14 m/s）以上開始出現呼嘯聲
+  setWind(windSpeed) {
+    this.wind = Math.min(Math.max((windSpeed - 5) / 20, 0), 1) ** 1.5;
+    this.howl = Math.min(Math.max((windSpeed - 14) / 11, 0), 1);
+  }
+
   applyLevels(smoothing) {
     const now = this.ctx.currentTime;
     this.rumbleGain.gain.setTargetAtTime(0.12 + 0.3 * this.intensity, now, smoothing || 0.01);
@@ -146,6 +172,20 @@ export class OceanAudio {
       this.scheduleWave(this.nextWave);
       this.nextWave += this.period * (0.7 + Math.random() * 0.6);
     }
+    while (this.nextGust < lookAhead) {
+      this.scheduleGust(this.nextGust);
+      this.nextGust += 0.8 + Math.random() * 2.2;
+    }
+  }
+
+  // 陣風：每隔一兩秒換一個隨機的強度，風聲的音量與音高平滑地跟著變化
+  scheduleGust(time) {
+    const gust = 0.55 + 0.45 * Math.random();
+    const smoothing = 0.4 + Math.random() * 0.6;
+    this.windGain.gain.setTargetAtTime(0.35 * this.wind * gust, time, smoothing);
+    this.windFilter.frequency.setTargetAtTime(300 + 500 * this.wind * gust, time, smoothing);
+    this.howlGain.gain.setTargetAtTime(0.5 * this.howl * gust * gust, time, smoothing);
+    this.howlFilter.frequency.setTargetAtTime(600 + 500 * gust + 300 * this.howl, time, smoothing * 1.5);
   }
 
   scheduleWave(time) {

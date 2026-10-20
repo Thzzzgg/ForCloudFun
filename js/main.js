@@ -6,6 +6,8 @@ import { OceanSurface } from './ocean-surface.js';
 import { Sky, skyLighting } from './sky.js';
 import { sunDirection, moonDirection, skyRotation } from './celestial.js';
 import { cloudThreshold, fogDensity, hazeDepth } from './weather.js';
+import { foamStreaks, sprayAmount, windVelocity } from './storm.js';
+import { Spray } from './spray.js';
 import { Buoy } from './buoy.js';
 import { PostProcess } from './post.js';
 import { createFoamDetailTexture } from './textures.js';
@@ -21,7 +23,7 @@ const SHADERS = [
   'common.glsl', 'atmosphere.glsl', 'clouds.glsl', 'fullscreen.vert',
   'spectrum-init.frag', 'spectrum-time.frag', 'fft.frag', 'assemble.frag', 'probe.frag',
   'sky-transmittance.frag', 'sky-multiscatter.frag', 'sky-precompute.frag', 'sky-clouds.frag', 'sky.frag',
-  'ocean.vert', 'ocean.frag', 'buoy.vert', 'buoy.frag',
+  'ocean.vert', 'ocean.frag', 'buoy.vert', 'buoy.frag', 'spray-update.frag', 'spray.vert', 'spray.frag',
   'bloom-prefilter.frag', 'bloom-down.frag', 'bloom-up.frag', 'composite.frag',
 ];
 
@@ -47,12 +49,14 @@ const CONFIG = {
   timelapseRate: 1 / 6, // 縮時播放：每秒前進 10 分鐘（小時／秒）
   skyUpdateInterval: 0.15, // 時間改變時重算大氣的最短間隔（秒），拖動滑桿時才不會卡頓
   cloudWindFactor: 2, // 雲層高度的風比海面強，雲飄得比較快
+  surfaceDrift: 0.03, // 表層海流約為風速的 3%，泡沫條紋跟著往下風處漂
 };
 
+// spray：最多畫幾顆浪花飛沫的粒子
 const QUALITY = {
-  high: { label: '高', fftSize: 256, grid: [720, 300], maxPixelRatio: 2 },
-  medium: { label: '中', fftSize: 256, grid: [480, 200], maxPixelRatio: 1.5 },
-  low: { label: '低', fftSize: 128, grid: [320, 140], maxPixelRatio: 1 },
+  high: { label: '高', fftSize: 256, grid: [720, 300], maxPixelRatio: 2, spray: 4096 },
+  medium: { label: '中', fftSize: 256, grid: [480, 200], maxPixelRatio: 1.5, spray: 2048 },
+  low: { label: '低', fftSize: 128, grid: [320, 140], maxPixelRatio: 1, spray: 1024 },
 };
 const QUALITY_TIERS = ['high', 'medium', 'low'].map((name) => ({ name, maxPixelRatio: QUALITY[name].maxPixelRatio }));
 // 自動畫質的起始等級：觸控裝置（手機、平板）從「中」開始
@@ -132,6 +136,8 @@ function buildPrograms(gl, sources) {
     sky: fullscreen('sky.frag'),
     ocean: new Program(gl, sources['ocean.vert'], sources['ocean.frag'], 'ocean'),
     buoy: new Program(gl, sources['buoy.vert'], sources['buoy.frag'], 'buoy'),
+    sprayUpdate: fullscreen('spray-update.frag'),
+    spray: new Program(gl, sources['spray.vert'], sources['spray.frag'], 'spray'),
     bloomPrefilter: fullscreen('bloom-prefilter.frag'),
     bloomDown: fullscreen('bloom-down.frag'),
     bloomUp: fullscreen('bloom-up.frag'),
@@ -151,6 +157,7 @@ async function main() {
   const foamDetail = createFoamDetailTexture(gl);
   const post = new PostProcess(gl, programs);
   const buoy = new Buoy(gl, programs.buoy, { anchor: CONFIG.buoyAnchor });
+  const spray = new Spray(gl, programs);
   const camera = createCamera({ fovY: CONFIG.view.orbit.fovY * DEG });
   const rig = createRig();
   const probe = new WaveProbe(gl, programs.probe);
@@ -264,6 +271,7 @@ async function main() {
     simulation.setSeaState(seaState);
     stats = waveStatistics({ ...seaState, kMin: simulation.kMin, kMax: simulation.kMax });
     audio.setSeaState(stats.significantHeight, stats.peakPeriod);
+    audio.setWind(params.windSpeed);
     ui.setStats(stats);
     seaStateDirty = false;
   }
@@ -301,6 +309,8 @@ async function main() {
       rig,
       getProbe: () => probe.results,
       sky,
+      spray,
+      audio,
       getEnvironment: () => environment,
       getFrameCount: () => frameCount,
     };
@@ -330,6 +340,7 @@ async function main() {
   let lastSkyUpdate = -Infinity;
   let shownMinute = null;
   const cloudOffset = [0, 0];
+  let streakDrift = 0;
 
   function updateEnvironment(now, dt) {
     if (params.timelapse) {
@@ -347,11 +358,12 @@ async function main() {
       skyTime = params.time;
       lastSkyUpdate = now;
     }
-    // 雲順著風向飄（風向與浪前進的方向相同，0° 朝向遠方）
-    const windAngle = params.windDirection * DEG;
-    const cloudDistance = params.windSpeed * CONFIG.cloudWindFactor * dt;
-    cloudOffset[0] += Math.sin(windAngle) * cloudDistance;
-    cloudOffset[1] -= Math.cos(windAngle) * cloudDistance;
+    // 雲順著風向飄，泡沫條紋跟著表層海流往下風處漂（條紋圖樣每 400 公尺重複，取餘數避免數值變大）
+    const wind = windVelocity(params.windDirection, params.windSpeed);
+    const windDir = windVelocity(params.windDirection, 1);
+    cloudOffset[0] += wind[0] * CONFIG.cloudWindFactor * dt;
+    cloudOffset[1] += wind[1] * CONFIG.cloudWindFactor * dt;
+    streakDrift = (streakDrift + params.windSpeed * CONFIG.surfaceDrift * dt) % 400;
     const haze = hazeDepth(params.visibility);
     environment = {
       ...skyLighting(sunDir, moonDir, haze),
@@ -361,6 +373,10 @@ async function main() {
       cloudOffset,
       hazeDepth: haze,
       fogDensity: fogDensity(params.visibility),
+      wind,
+      windDir,
+      foamStreaks: foamStreaks(params.windSpeed),
+      streakDrift,
     };
     return environment;
   }
@@ -405,6 +421,7 @@ async function main() {
     probe.sample(simulation, rig.probePoints());
 
     const env = updateEnvironment(now, dt);
+    spray.update({ simulation, camera, deltaTime: dt, wind: env.wind, amount: sprayAmount(params.windSpeed) });
     sky.update(camera, env);
     post.beginScene();
     sky.draw(camera, env, time);
@@ -417,6 +434,7 @@ async function main() {
       maxDistance: CONFIG.maxDistance,
     });
     buoy.draw(shared);
+    spray.draw({ ...shared, foamDetail, count: QUALITY[tier].spray });
     post.endScene();
     post.render({ sky: sky.texture, bloomStrength: CONFIG.bloomStrength, time });
     frameCount++;
