@@ -274,6 +274,7 @@ async function main() {
       swellPeriod: params.swellPeriod,
     };
     simulation.setSeaState(seaState);
+    bell.resetMotion();
     stats = waveStatistics({ ...seaState, kMin: simulation.kMin, kMax: simulation.kMax });
     audio.setSeaState(stats.significantHeight, stats.peakPeriod);
     audio.setWind(params.windSpeed);
@@ -340,7 +341,7 @@ async function main() {
     const water = probe.results[BUOY_PROBE];
     if (water && water !== lastBuoyWater) {
       const pose = buoyPose(CONFIG.buoyAnchor, water);
-      bell.addSample(pose);
+      bell.addSample(pose, probe.resultsTime);
       bellPosition = pose.center.map((v, i) => v + pose.up[i] * bell.pivotHeight);
       lastBuoyWater = water;
     }
@@ -447,7 +448,7 @@ async function main() {
     simulation.update(time, dt, params.choppiness);
     // 海面取樣：鏡頭、船與浮標的位置（浮標那一欄直接給海面著色器畫倒影與泡沫圈）
     const buoyPoint = { x: CONFIG.buoyAnchor[0], z: CONFIG.buoyAnchor[1], footprint: BUOY_FOOTPRINT };
-    probe.sample(simulation, [...rig.probePoints(), buoyPoint]);
+    probe.sample(simulation, [...rig.probePoints(), buoyPoint], time);
     updateBell(dt);
 
     const env = updateEnvironment(now, dt);

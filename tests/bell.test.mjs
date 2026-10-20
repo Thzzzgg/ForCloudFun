@@ -6,18 +6,37 @@ import { BellClapper } from '../js/bell.js';
 
 const DEG = Math.PI / 180;
 
-// 模擬浮標以 period 秒為週期左右搖晃 amplitude 度、同時做半徑 radius 公尺的軌道運動，回傳所有撞擊速度
-function simulate({ amplitude, period, radius, seconds = 30, fps = 60 }) {
+// 浮標以 period 秒為週期左右搖晃 amplitude 度、同時做半徑 radius 公尺的軌道運動時，t 秒的姿態
+function pose({ amplitude, period, radius }, t) {
+  const omega = (2 * Math.PI) / period;
+  const angle = amplitude * DEG * Math.sin(omega * t);
+  return {
+    center: [radius * Math.sin(omega * t), radius * Math.cos(omega * t), 0],
+    up: [Math.sin(angle), Math.cos(angle), 0],
+  };
+}
+
+// 每幀取樣一次並更新鐘錘，回傳所有撞擊速度
+// delay 為讀回延遲的幀數；irregular 時讀回不一定每幀到達（像實際的非同步讀回）
+function simulate({ seconds = 30, fps = 60, delay = 0, irregular = false, ...motion }) {
   const clapper = new BellClapper();
   const strikes = [];
-  const omega = (2 * Math.PI) / period;
+  let pending = [];
+  let seed = 1;
+  const random = () => {
+    seed = (seed * 16807) % 2147483647;
+    return seed / 2147483647;
+  };
   for (let frame = 0; frame < seconds * fps; frame++) {
     const t = frame / fps;
-    const angle = amplitude * DEG * Math.sin(omega * t);
-    clapper.addSample({
-      center: [radius * Math.sin(omega * t), radius * Math.cos(omega * t), 0],
-      up: [Math.sin(angle), Math.cos(angle), 0],
-    });
+    pending.push({ t, ready: frame + delay + (irregular ? Math.floor(random() * 3) : 0) });
+    // 已讀回的資料中只拿最新的一筆（和 js/wave-probe.js 一樣）
+    const ready = pending.filter((p) => p.ready <= frame);
+    pending = pending.filter((p) => p.ready > frame);
+    if (ready.length) {
+      const latest = ready[ready.length - 1];
+      clapper.addSample(pose(motion, latest.t), latest.t);
+    }
     strikes.push(...clapper.update(1 / fps));
   }
   return strikes;
@@ -45,6 +64,13 @@ test('鐘錘貼著鐘壁時不會連續響個不停', () => {
   // 每個搖晃週期大約響兩次（往兩邊各撞一次），不會每一小步都算一響
   const strikes = simulate({ amplitude: 18, period: 6, radius: 1, seconds: 60 });
   assert.ok(strikes.length <= 60, `一分鐘響了 ${strikes.length} 次`);
+});
+
+test('讀回延遲幾幀、到達時間不規則時，平靜的海面也不會亂響', () => {
+  assert.equal(simulate({ amplitude: 3, period: 8, radius: 0.2, delay: 2, irregular: true }).length, 0);
+  const regular = simulate({ amplitude: 18, period: 6, radius: 1 }).length;
+  const irregular = simulate({ amplitude: 18, period: 6, radius: 1, delay: 2, irregular: true }).length;
+  assert.ok(Math.abs(regular - irregular) <= Math.max(3, regular * 0.35), `規則 ${regular} 次、不規則 ${irregular} 次`);
 });
 
 test('取樣幀率不同時，響的次數差不多', () => {
