@@ -3,6 +3,8 @@
 precision highp float;
 precision highp sampler2D;
 
+#include "buoy.glsl"
+
 layout(location = 0) in vec3 a_position;
 layout(location = 1) in vec3 a_normal;
 layout(location = 2) in vec3 a_color;
@@ -29,6 +31,8 @@ out vec3 v_normal;
 out vec3 v_color;
 out float v_emissive;
 out float v_localY;
+out vec3 v_local;     // 浮標座標（含左右擺動），吃水線泡沫的紋理座標用
+out vec2 v_restXZ;    // 這一點的海面靜止座標（扣掉浪的水平位移），用來查這裡的水位
 
 float lodFor(float patchSize) {
   return clamp(log2(max(u_footprint * u_texSize / patchSize, 1.0)), 0.0, u_maxLod);
@@ -58,20 +62,18 @@ void main() {
     + textureLod(u_derivatives1, uv1, lod1)
     + textureLod(u_derivatives2, uv2, lod2)
     + textureLod(u_derivatives3, uv3, lod3);
-  vec2 slope = derivatives.xy / max(1.0 + derivatives.zw, vec2(0.25));
-  vec3 up = normalize(vec3(-slope.x, 1.0, -slope.y));
-  up = normalize(mix(vec3(0.0, 1.0, 0.0), up, 0.85));
 
   // 依海面法線建立浮標的座標系，再加上緩慢的左右擺動
-  vec3 forward = normalize(cross(vec3(1.0, 0.0, 0.0), up));
-  vec3 right = cross(up, forward);
-  mat3 basis = mat3(right, up, forward);
+  mat3 basis = buoyBasis(derivatives);
   float yaw = sin(u_time * 0.21) * 0.35 + sin(u_time * 0.13 + 1.7) * 0.2;
 
   vec3 center = vec3(u_anchor.x + displacement.x, displacement.y, u_anchor.y + displacement.z);
-  vec3 world = center + basis * rotateY(a_position, yaw);
+  vec3 local = rotateY(a_position, yaw);
+  vec3 world = center + basis * local;
 
   v_worldPos = world;
+  v_local = local;
+  v_restXZ = world.xz - displacement.xz;
   v_normal = basis * rotateY(a_normal, yaw);
   v_color = a_color;
   v_emissive = a_emissive;

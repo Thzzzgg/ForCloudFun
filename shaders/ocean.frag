@@ -1,10 +1,11 @@
 #version 300 es
-// 海面著色：天空反射（Fresnel）、太陽與月亮的高光（GGX）、次表面散射、白浪泡沫、雲影與大氣透視
+// 海面著色：天空與浮標的反射（Fresnel）、太陽與月亮的高光（GGX）、次表面散射、白浪泡沫、雲影與大氣透視
 precision highp float;
 precision highp sampler2D;
 
 #include "common.glsl"
 #include "clouds.glsl"
+#include "buoy.glsl"
 
 in vec3 v_worldPos;
 in vec2 v_restXZ;
@@ -35,6 +36,12 @@ uniform float u_fogDensity;
 uniform vec2 u_windDir;          // 風吹往的方向（xz 平面的單位向量）
 uniform float u_foamStreaks;     // 強風時沿風向的泡沫條紋（0 = 沒有）
 uniform float u_streakDrift;     // 條紋隨表層海流往下風處漂移的距離（公尺）
+uniform sampler2D u_probe;       // 這一幀的海面取樣結果（js/wave-probe.js），其中一欄是浮標的位置與坡度
+uniform int u_buoyProbe;         // 浮標在取樣結果中的欄位
+uniform vec2 u_buoyAnchor;       // 浮標錨定的海面位置 (x, z)
+uniform float u_buoyFoam;        // 吃水線泡沫圈的強度（0～1），浪越大越寬、越密
+uniform float u_lampIntensity;   // 浮標燈號在畫面上的亮度
+uniform float u_time;
 
 out vec4 fragColor;
 
@@ -81,6 +88,25 @@ void main() {
   vec3 R = reflect(-V, normal);
   R.y = abs(R.y);
   vec3 reflection = sampleSky(u_sky, normalize(R), clamp(log2(alpha * 48.0), 0.0, 6.0));
+
+  // 浮標的位置與座標系：和浮標本身一樣取自這一幀的海面取樣，倒影與泡沫圈才會跟著浮標走
+  vec3 buoyDisplacement = texelFetch(u_probe, ivec2(u_buoyProbe, 0), 0).xyz;
+  vec3 buoyCenter = vec3(u_buoyAnchor.x, 0.0, u_buoyAnchor.y) + buoyDisplacement;
+  mat3 buoyFrame = buoyBasis(texelFetch(u_probe, ivec2(u_buoyProbe, 1), 0));
+
+  // 浮標的倒影：反射方向若擊中浮標，就以浮標該處的顏色取代天空
+  float buoyHeight;
+  vec3 buoyNormal;
+  if (traceBuoy(v_worldPos, normalize(R), buoyCenter, buoyFrame, buoyHeight, buoyNormal)) {
+    vec4 paint = buoyColorAt(buoyHeight);
+    vec3 albedo = paint.rgb * mix(0.55, 1.0, smoothstep(0.0, 0.25, buoyHeight)); // 吃水線附近被打濕
+    vec3 buoyColor = albedo * skyAmbient(u_sky) * (0.6 + 0.4 * buoyNormal.y);
+    for (int i = 0; i < 2; i++) {
+      buoyColor += albedo * u_lightColor[i] * max(dot(buoyNormal, u_lightDir[i]), 0.0) / PI;
+    }
+    buoyColor += paint.w * vec3(1.0, 0.86, 0.55) * u_lampIntensity / autoExposure(u_sky);
+    reflection = buoyColor;
+  }
 
   vec3 ambient = skyAmbient(u_sky);
   float crest = max(v_height, 0.0);
@@ -132,6 +158,14 @@ void main() {
       * smoothstep(0.25, 0.6, detail) * (1.0 - smoothstep(60.0, 250.0, dist)) * u_foamStreaks;
     foamMask = max(foamMask, streaks * 0.75);
   }
+  // 吃水線的泡沫圈：浮標隨浪起伏，把周圍的海水攪出一圈不斷翻動的白色泡沫
+  float ringDistance = max(length(v_worldPos.xz - buoyCenter.xz) - BUOY_RADIUS, 0.0);
+  float ring = (1.0 - smoothstep(0.0, 0.2 + 0.7 * u_buoyFoam, ringDistance)) * u_buoyFoam;
+  vec4 bubbleNoise = texture(u_foamDetail, v_restXZ * 0.45 + u_time * vec2(0.011, -0.017));
+  float bubbles = 0.6 * bubbleNoise.r + 0.4 * bubbleNoise.g;
+  float ringThreshold = 1.0 - 0.75 * ring;
+  foamMask = max(foamMask, smoothstep(ringThreshold, ringThreshold + 0.25, bubbles) * smoothstep(0.0, 0.3, ring) * 0.9);
+
   color = mix(color, vec3(0.75) * foamLight, foamMask);
 
   color = applyAerialPerspective(color, -V, dist, u_sky, u_fogDensity);

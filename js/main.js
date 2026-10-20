@@ -8,7 +8,7 @@ import { sunDirection, moonDirection, skyRotation } from './celestial.js';
 import { cloudThreshold, fogDensity, hazeDepth } from './weather.js';
 import { foamStreaks, sprayAmount, windVelocity } from './storm.js';
 import { Spray } from './spray.js';
-import { Buoy } from './buoy.js';
+import { Buoy, BUOY_FOOTPRINT, buoyFoamAmount } from './buoy.js';
 import { PostProcess } from './post.js';
 import { createFoamDetailTexture } from './textures.js';
 import { OceanAudio } from './audio.js';
@@ -20,7 +20,7 @@ import { WaveProbe } from './wave-probe.js';
 import { AdaptiveQuality } from './quality.js';
 
 const SHADERS = [
-  'common.glsl', 'atmosphere.glsl', 'clouds.glsl', 'fullscreen.vert',
+  'common.glsl', 'atmosphere.glsl', 'clouds.glsl', 'buoy.glsl', 'fullscreen.vert',
   'spectrum-init.frag', 'spectrum-time.frag', 'fft.frag', 'assemble.frag', 'probe.frag',
   'sky-transmittance.frag', 'sky-multiscatter.frag', 'sky-precompute.frag', 'sky-clouds.frag', 'sky.frag',
   'ocean.vert', 'ocean.frag', 'buoy.vert', 'buoy.frag', 'spray-update.frag', 'spray.vert', 'spray.frag',
@@ -28,6 +28,7 @@ const SHADERS = [
 ];
 
 const DEG = Math.PI / 180;
+const BUOY_PROBE = 2; // 海面取樣中浮標的位置：鏡頭與船（rig.probePoints()）之後
 
 const CONFIG = {
   // 四層海面區塊：邊長（公尺）與該層負責的最長波長；最大一層負責湧浪與最長的風浪
@@ -313,6 +314,7 @@ async function main() {
       audio,
       getEnvironment: () => environment,
       getFrameCount: () => frameCount,
+      getTime: () => time, // 動畫時間（秒），例如用來等浮標燈號亮起
     };
   }
 
@@ -418,7 +420,9 @@ async function main() {
     updateCamera(camera, canvas.width / canvas.height);
 
     simulation.update(time, dt, params.choppiness);
-    probe.sample(simulation, rig.probePoints());
+    // 海面取樣：鏡頭、船與浮標的位置（浮標那一欄直接給海面著色器畫倒影與泡沫圈）
+    const buoyPoint = { x: CONFIG.buoyAnchor[0], z: CONFIG.buoyAnchor[1], footprint: BUOY_FOOTPRINT };
+    probe.sample(simulation, [...rig.probePoints(), buoyPoint]);
 
     const env = updateEnvironment(now, dt);
     spray.update({ simulation, camera, deltaTime: dt, wind: env.wind, amount: sprayAmount(params.windSpeed) });
@@ -432,8 +436,15 @@ async function main() {
       scatterColor: srgbHexToLinear(params.waterColor),
       foamBias: foamBias(params.foam, params.windSpeed),
       maxDistance: CONFIG.maxDistance,
+      buoy: {
+        probe: probe.texture,
+        probeIndex: BUOY_PROBE,
+        anchor: CONFIG.buoyAnchor,
+        foam: buoyFoamAmount(stats.significantHeight),
+        lampIntensity: Buoy.lampIntensity(time),
+      },
     });
-    buoy.draw(shared);
+    buoy.draw({ ...shared, foamDetail, contactFoam: buoyFoamAmount(stats.significantHeight) });
     spray.draw({ ...shared, foamDetail, count: QUALITY[tier].spray });
     post.endScene();
     post.render({ sky: sky.texture, bloomStrength: CONFIG.bloomStrength, time });
