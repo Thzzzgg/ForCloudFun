@@ -5,6 +5,18 @@ const SEGMENTS = 36;
 const LAMP_BRIGHTNESS = 33; // 燈號亮起時在畫面上的亮度（曝光後），白天夜晚都一樣
 export const BUOY_FOOTPRINT = 1.6; // 浮標底面大小：取樣這個範圍的海面平均，過濾掉小波紋
 
+const normalize = (v) => {
+  const length = Math.hypot(v[0], v[1], v[2]);
+  return v.map((x) => x / length);
+};
+
+// 浮標吃水線的中心與上方向（與 shaders/buoy.glsl 的 buoyBasis 相同）；water 為海面取樣的結果
+export function buoyPose(anchor, { displacement, slope }) {
+  const normal = normalize([-slope[0], 1, -slope[1]]);
+  const up = normalize([0.85 * normal[0], 0.15 + 0.85 * normal[1], 0.85 * normal[2]]);
+  return { center: [anchor[0] + displacement[0], displacement[1], anchor[1] + displacement[2]], up };
+}
+
 // 吃水線泡沫的強度（0～1）：浪越大，浮標起伏越劇烈，攪出的泡沫越多；平靜時幾乎沒有
 export function buoyFoamAmount(significantHeight) {
   const t = Math.min(Math.max((significantHeight - 0.3) / 2.2, 0), 1);

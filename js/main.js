@@ -8,7 +8,8 @@ import { sunDirection, moonDirection, skyRotation } from './celestial.js';
 import { cloudThreshold, fogDensity, hazeDepth } from './weather.js';
 import { foamStreaks, sprayAmount, windVelocity } from './storm.js';
 import { Spray } from './spray.js';
-import { Buoy, BUOY_FOOTPRINT, buoyFoamAmount } from './buoy.js';
+import { Buoy, BUOY_FOOTPRINT, buoyFoamAmount, buoyPose } from './buoy.js';
+import { BellClapper } from './bell.js';
 import { PostProcess } from './post.js';
 import { createFoamDetailTexture } from './textures.js';
 import { OceanAudio } from './audio.js';
@@ -163,6 +164,9 @@ async function main() {
   const rig = createRig();
   const probe = new WaveProbe(gl, programs.probe);
   const audio = new OceanAudio();
+  const bell = new BellClapper();
+  let lastBuoyWater = null;
+  let bellPosition = null;
 
   // 第一次載入時提示操作方式，使用者開始操作或幾秒後自動淡出；觸控裝置沒有滾輪
   const hint = document.getElementById('hint');
@@ -315,6 +319,7 @@ async function main() {
       getEnvironment: () => environment,
       getFrameCount: () => frameCount,
       getTime: () => time, // 動畫時間（秒），例如用來等浮標燈號亮起
+      bell,
     };
   }
 
@@ -327,6 +332,26 @@ async function main() {
       canvas: [canvas.width, canvas.height],
       fftSize: simulation.size,
     };
+  }
+
+  // 鐘浮標：有新的浮標取樣時更新鐘錘，撞到鐘就合成鐘聲；聲音依鐘與鏡頭的方向、距離調整
+  // 鐘錘的模擬很便宜，音效關閉時也照常計算，打開音效時才不會因為狀態中斷而突然猛敲一下
+  function updateBell(dt) {
+    const water = probe.results[BUOY_PROBE];
+    if (water && water !== lastBuoyWater) {
+      const pose = buoyPose(CONFIG.buoyAnchor, water);
+      bell.addSample(pose);
+      bellPosition = pose.center.map((v, i) => v + pose.up[i] * bell.pivotHeight);
+      lastBuoyWater = water;
+    }
+    const strikes = bell.update(dt);
+    if (!audio.enabled) return;
+    for (const speed of strikes) {
+      const toBell = bellPosition.map((v, i) => v - camera.position[i]);
+      const distance = Math.hypot(...toBell);
+      const side = toBell.reduce((sum, v, i) => sum + v * camera.right[i], 0) / Math.max(distance, 1e-3);
+      audio.ringBell(Math.min(Math.max((speed - 0.02) / 0.3, 0), 1), { pan: side * 0.8, distance });
+    }
   }
 
   function applyAdaptiveChange() {
@@ -423,6 +448,7 @@ async function main() {
     // 海面取樣：鏡頭、船與浮標的位置（浮標那一欄直接給海面著色器畫倒影與泡沫圈）
     const buoyPoint = { x: CONFIG.buoyAnchor[0], z: CONFIG.buoyAnchor[1], footprint: BUOY_FOOTPRINT };
     probe.sample(simulation, [...rig.probePoints(), buoyPoint]);
+    updateBell(dt);
 
     const env = updateEnvironment(now, dt);
     spray.update({ simulation, camera, deltaTime: dt, wind: env.wind, amount: sprayAmount(params.windSpeed) });
