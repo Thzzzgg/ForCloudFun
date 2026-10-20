@@ -9,7 +9,7 @@ import { cloudThreshold, fogDensity, hazeDepth } from './weather.js';
 import { foamStreaks, sprayAmount, windVelocity } from './storm.js';
 import { Spray } from './spray.js';
 import { Buoy, BUOY_FOOTPRINT, buoyFoamAmount, buoyPose } from './buoy.js';
-import { BellClapper } from './bell.js';
+import { BellClapper, strikeStrength } from './bell.js';
 import { PostProcess } from './post.js';
 import { createFoamDetailTexture } from './textures.js';
 import { OceanAudio } from './audio.js';
@@ -166,7 +166,6 @@ async function main() {
   const audio = new OceanAudio();
   const bell = new BellClapper();
   let lastBuoyWater = null;
-  let bellPosition = null;
 
   // 第一次載入時提示操作方式，使用者開始操作或幾秒後自動淡出；觸控裝置沒有滾輪
   const hint = document.getElementById('hint');
@@ -274,7 +273,7 @@ async function main() {
       swellPeriod: params.swellPeriod,
     };
     simulation.setSeaState(seaState);
-    bell.resetMotion();
+    bell.resetMotion(time);
     stats = waveStatistics({ ...seaState, kMin: simulation.kMin, kMax: simulation.kMax });
     audio.setSeaState(stats.significantHeight, stats.peakPeriod);
     audio.setWind(params.windSpeed);
@@ -337,21 +336,19 @@ async function main() {
 
   // 鐘浮標：有新的浮標取樣時更新鐘錘，撞到鐘就合成鐘聲；聲音依鐘與鏡頭的方向、距離調整
   // 鐘錘的模擬很便宜，音效關閉時也照常計算，打開音效時才不會因為狀態中斷而突然猛敲一下
-  function updateBell(dt) {
+  function updateBell() {
     const water = probe.results[BUOY_PROBE];
-    if (water && water !== lastBuoyWater) {
-      const pose = buoyPose(CONFIG.buoyAnchor, water);
-      bell.addSample(pose, probe.resultsTime);
-      bellPosition = pose.center.map((v, i) => v + pose.up[i] * bell.pivotHeight);
-      lastBuoyWater = water;
-    }
-    const strikes = bell.update(dt);
+    if (!water || water === lastBuoyWater) return;
+    lastBuoyWater = water;
+    const pose = buoyPose(CONFIG.buoyAnchor, water);
+    const strikes = bell.addSample(pose, probe.resultsTime);
     if (!audio.enabled) return;
+    const bellPosition = pose.center.map((v, i) => v + pose.up[i] * bell.pivotHeight);
     for (const speed of strikes) {
       const toBell = bellPosition.map((v, i) => v - camera.position[i]);
       const distance = Math.hypot(...toBell);
       const side = toBell.reduce((sum, v, i) => sum + v * camera.right[i], 0) / Math.max(distance, 1e-3);
-      audio.ringBell(Math.min(Math.max((speed - 0.02) / 0.3, 0), 1), { pan: side * 0.8, distance });
+      audio.ringBell(strikeStrength(speed), { pan: side * 0.8, distance });
     }
   }
 
@@ -449,7 +446,7 @@ async function main() {
     // 海面取樣：鏡頭、船與浮標的位置（浮標那一欄直接給海面著色器畫倒影與泡沫圈）
     const buoyPoint = { x: CONFIG.buoyAnchor[0], z: CONFIG.buoyAnchor[1], footprint: BUOY_FOOTPRINT };
     probe.sample(simulation, [...rig.probePoints(), buoyPoint], time);
-    updateBell(dt);
+    updateBell();
 
     const env = updateEnvironment(now, dt);
     spray.update({ simulation, camera, deltaTime: dt, wind: env.wind, amount: sprayAmount(params.windSpeed) });

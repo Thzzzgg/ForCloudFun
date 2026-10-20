@@ -2,7 +2,7 @@
 // 執行方式：node --test
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { BellClapper } from '../js/bell.js';
+import { BellClapper, strikeStrength } from '../js/bell.js';
 
 const DEG = Math.PI / 180;
 
@@ -16,7 +16,7 @@ function pose({ amplitude, period, radius }, t) {
   };
 }
 
-// 每幀取樣一次並更新鐘錘，回傳所有撞擊速度
+// 每幀取樣一次，讀回後交給鐘錘，回傳所有撞擊速度
 // delay 為讀回延遲的幀數；irregular 時讀回不一定每幀到達（像實際的非同步讀回）
 function simulate({ seconds = 30, fps = 60, delay = 0, irregular = false, ...motion }) {
   const clapper = new BellClapper();
@@ -35,9 +35,8 @@ function simulate({ seconds = 30, fps = 60, delay = 0, irregular = false, ...mot
     pending = pending.filter((p) => p.ready > frame);
     if (ready.length) {
       const latest = ready[ready.length - 1];
-      clapper.addSample(pose(motion, latest.t), latest.t);
+      strikes.push(...clapper.addSample(pose(motion, latest.t), latest.t));
     }
-    strikes.push(...clapper.update(1 / fps));
   }
   return strikes;
 }
@@ -60,8 +59,13 @@ test('搖晃得夠大時鐘會響，晃得越厲害敲得越用力', () => {
   assert.ok([...moderate, ...strong].every((speed) => speed > 0), '撞擊速度為正');
 });
 
+test('週期接近浮標搖擺週期的浪才搖得響鐘，更陡的短浪反而搖不響', () => {
+  assert.equal(simulate({ amplitude: 8, period: 2, radius: 0.15 }).length, 0);
+  assert.ok(simulate({ amplitude: 5, period: 4, radius: 0.3 }).length > 0);
+});
+
 test('鐘錘貼著鐘壁時不會連續響個不停', () => {
-  // 每個搖晃週期大約響兩次（往兩邊各撞一次），不會每一小步都算一響
+  // 每個搖晃週期只響幾次（往兩邊撞，偶爾反彈再撞一下），不會每一小步都算一響
   const strikes = simulate({ amplitude: 18, period: 6, radius: 1, seconds: 60 });
   assert.ok(strikes.length <= 60, `一分鐘響了 ${strikes.length} 次`);
 });
@@ -77,4 +81,30 @@ test('取樣幀率不同時，響的次數差不多', () => {
   const at60 = simulate({ amplitude: 18, period: 6, radius: 1, fps: 60 }).length;
   const at24 = simulate({ amplitude: 18, period: 6, radius: 1, fps: 24 }).length;
   assert.ok(Math.abs(at60 - at24) <= Math.max(3, at60 * 0.35), `60 fps ${at60} 次、24 fps ${at24} 次`);
+});
+
+test('換海況之後，還在路上的舊取樣不會把鐘錘踢響', () => {
+  // 換海況前浮標靜止不動，換了之後浮標的位置與傾斜突然不同（之後也靜止）
+  const clapper = new BellClapper();
+  const before = pose({ amplitude: 0, period: 6, radius: 0 }, 0);
+  const after = { center: [0.8, 0.5, 0], up: [Math.sin(5 * DEG), Math.cos(5 * DEG), 0] };
+  for (let frame = 0; frame < 120; frame++) clapper.addSample(before, frame / 60);
+  clapper.resetMotion(2);
+  assert.deepEqual(clapper.addSample(before, 1.99), [], '換海況前取樣、晚到的資料直接略過');
+  const strikes = [];
+  for (let frame = 120; frame < 600; frame++) strikes.push(...clapper.addSample(after, frame / 60));
+  assert.deepEqual(strikes, []);
+  assert.ok(Math.abs(clapper.tilt[0] - Math.tan(5 * DEG)) < 1e-9, `從新海面的姿態重新開始：${clapper.tilt}`);
+});
+
+test('撞得越快敲得越大聲，輕輕碰到則聽不到', () => {
+  assert.equal(strikeStrength(0), 0);
+  assert.equal(strikeStrength(0.02), 0);
+  assert.equal(strikeStrength(0.5), 1);
+  let previous = 0;
+  for (let speed = 0; speed <= 0.3; speed += 0.01) {
+    const strength = strikeStrength(speed);
+    assert.ok(strength >= previous && strength <= 1, `速度 ${speed.toFixed(2)} m/s`);
+    previous = strength;
+  }
 });
