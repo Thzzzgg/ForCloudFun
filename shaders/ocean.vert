@@ -1,5 +1,5 @@
 #version 300 es
-// 海面頂點：螢幕空間的「投影網格」投射到海平面，再加上三層 FFT 的位移
+// 海面頂點：螢幕空間的「投影網格」投射到海平面，再加上四層 FFT 的位移
 // 網格在畫面上分布均勻，近處細、遠處粗，一路延伸到地平線
 precision highp float;
 precision highp sampler2D;
@@ -15,12 +15,13 @@ uniform vec2 u_tanHalfFov;
 uniform vec4 u_gridMap;        // (左右邊界 x, 底部 y, 頂部 y, 底部延伸區佔的比例)
 uniform vec2 u_gridStep;
 uniform float u_maxDistance;
-uniform vec3 u_lengths;
+uniform vec4 u_lengths;        // 四層海面區塊的邊長（公尺）
 uniform float u_texSize;
 uniform float u_maxLod;
 uniform sampler2D u_displacement0;
 uniform sampler2D u_displacement1;
 uniform sampler2D u_displacement2;
+uniform sampler2D u_displacement3;
 
 out vec3 v_worldPos;
 out vec2 v_restXZ;
@@ -59,7 +60,8 @@ void main() {
 
   vec3 displacement = displacementAt(u_displacement0, rest.xz, u_lengths.x, cellSize)
     + displacementAt(u_displacement1, rest.xz, u_lengths.y, cellSize)
-    + displacementAt(u_displacement2, rest.xz, u_lengths.z, cellSize);
+    + displacementAt(u_displacement2, rest.xz, u_lengths.z, cellSize)
+    + displacementAt(u_displacement3, rest.xz, u_lengths.w, cellSize);
 
   vec3 world = rest + displacement;
   v_worldPos = world;

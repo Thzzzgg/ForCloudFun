@@ -12,15 +12,17 @@ uniform mat4 u_viewProjection;
 uniform vec2 u_anchor;        // 浮標錨定的海面位置 (x, z)
 uniform float u_footprint;    // 浮標底面大小：取樣這個範圍的平均，過濾掉小波紋
 uniform float u_time;
-uniform vec3 u_lengths;
+uniform vec4 u_lengths;       // 四層海面區塊的邊長（公尺）
 uniform float u_texSize;
 uniform float u_maxLod;
 uniform sampler2D u_displacement0;
 uniform sampler2D u_displacement1;
 uniform sampler2D u_displacement2;
+uniform sampler2D u_displacement3;
 uniform sampler2D u_derivatives0;
 uniform sampler2D u_derivatives1;
 uniform sampler2D u_derivatives2;
+uniform sampler2D u_derivatives3;
 
 out vec3 v_worldPos;
 out vec3 v_normal;
@@ -42,16 +44,20 @@ void main() {
   vec2 uv0 = u_anchor / u_lengths.x;
   vec2 uv1 = u_anchor / u_lengths.y;
   vec2 uv2 = u_anchor / u_lengths.z;
+  vec2 uv3 = u_anchor / u_lengths.w;
   float lod0 = lodFor(u_lengths.x);
   float lod1 = lodFor(u_lengths.y);
   float lod2 = lodFor(u_lengths.z);
+  float lod3 = lodFor(u_lengths.w);
 
   vec3 displacement = textureLod(u_displacement0, uv0, lod0).xyz
     + textureLod(u_displacement1, uv1, lod1).xyz
-    + textureLod(u_displacement2, uv2, lod2).xyz;
+    + textureLod(u_displacement2, uv2, lod2).xyz
+    + textureLod(u_displacement3, uv3, lod3).xyz;
   vec4 derivatives = textureLod(u_derivatives0, uv0, lod0)
     + textureLod(u_derivatives1, uv1, lod1)
-    + textureLod(u_derivatives2, uv2, lod2);
+    + textureLod(u_derivatives2, uv2, lod2)
+    + textureLod(u_derivatives3, uv3, lod3);
   vec2 slope = derivatives.xy / max(1.0 + derivatives.zw, vec2(0.25));
   vec3 up = normalize(vec3(-slope.x, 1.0, -slope.y));
   up = normalize(mix(vec3(0.0, 1.0, 0.0), up, 0.85));

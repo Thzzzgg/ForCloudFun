@@ -1,21 +1,31 @@
 // GPU 上的 FFT 海洋模擬：多層不同尺度的海面區塊（cascade）疊加，避免看出重複的圖樣
 import { createTexture, createFramebuffer, generateMipmaps, deleteTextures, drawFullscreen } from './gl.js';
-import { cascadeBoundaries, gaussianNoise, jonswapParameters } from './spectrum.js';
+import {
+  cascadeBoundaries, gaussianNoise, jonswapParameters, swellParameters, swellSpreadNormalization, SWELL_SPREAD,
+} from './spectrum.js';
 
 // 頻率量化成基頻的整數倍，動畫每 1000 秒無縫循環，也避免長時間後浮點精度不足
 export const LOOP_PERIOD = 1000;
 const OMEGA0 = (2 * Math.PI) / LOOP_PERIOD;
 const FOAM_RECOVERY = 0.3;
+const SWELL_SPREAD_NORM = swellSpreadNormalization(SWELL_SPREAD);
+
+// 面板的方向（0 = 往畫面遠方，順時針增加）換算成 xz 平面上的角度
+function planeAngle(direction) {
+  return Math.atan2(-Math.cos(direction), Math.sin(direction));
+}
 
 export class OceanSimulation {
-  constructor(gl, programs, { size, lengths }) {
+  // cascades：由大到小 [{ length, maxWavelength }]
+  constructor(gl, programs, { size, cascades }) {
     this.gl = gl;
     this.programs = programs;
     this.size = size;
+    const lengths = cascades.map((c) => c.length);
     this.lengths = lengths;
     this.maxLod = Math.log2(size);
 
-    const boundaries = cascadeBoundaries(size, lengths);
+    const boundaries = cascadeBoundaries(size, cascades);
     this.kMin = (2 * Math.PI) / lengths[0];
     this.kMax = (Math.PI * size) / lengths[lengths.length - 1];
 
@@ -31,8 +41,8 @@ export class OceanSimulation {
       width: size, height: size, internalFormat: gl.RGBA16F, wrap: 'repeat', mipmaps: true, anisotropy: true,
     });
     this.cascades = lengths.map((length, i) => {
-      const noise = createTexture(gl, { width: size, height: size, internalFormat: gl.RG32F, filter: 'nearest' });
-      gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, size, size, gl.RG, gl.FLOAT, gaussianNoise(size, 1 + i * 7919));
+      const noise = createTexture(gl, { width: size, height: size, internalFormat: gl.RGBA32F, filter: 'nearest' });
+      gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, size, size, gl.RGBA, gl.FLOAT, gaussianNoise(size, 1 + i * 7919));
       const h0 = createTexture(gl, { width: size, height: size, internalFormat: gl.RGBA32F, filter: 'nearest' });
       const displacement = [outputTexture(), outputTexture()];
       const derivatives = outputTexture();
@@ -64,17 +74,23 @@ export class OceanSimulation {
     this.current = 0;
   }
 
-  // 海況參數改變時重新產生初始頻譜（GPU 上一次繪製即可完成）
-  setSeaState({ windSpeed, windDirection, heightScale, fetch }) {
+  // 海況參數改變時重新產生初始頻譜（GPU 上一次繪製即可完成）；方向的單位是弧度
+  setSeaState({ windSpeed, windDirection, heightScale, fetch, swellHeight, swellDirection, swellPeriod }) {
     const { gl, size } = this;
-    const { alpha, omegaPeak } = jonswapParameters(windSpeed, fetch);
+    const wind = jonswapParameters(windSpeed, fetch);
+    const swell = swellParameters(swellHeight, swellPeriod);
     const program = this.programs.spectrumInit.use();
     program
       .set('u_size', size)
-      .set('u_alpha', alpha)
-      .set('u_omegaPeak', omegaPeak)
-      .set('u_windAngle', Math.atan2(-Math.cos(windDirection), Math.sin(windDirection)))
-      .set('u_heightScale', heightScale);
+      .set('u_alpha', wind.alpha)
+      .set('u_omegaPeak', wind.omegaPeak)
+      .set('u_windAngle', planeAngle(windDirection))
+      .set('u_heightScale', heightScale)
+      .set('u_swellAlpha', swell.alpha)
+      .set('u_swellOmegaPeak', swell.omegaPeak)
+      .set('u_swellAngle', planeAngle(swellDirection))
+      .set('u_swellSpread', SWELL_SPREAD)
+      .set('u_swellSpreadNorm', SWELL_SPREAD_NORM);
     gl.disable(gl.DEPTH_TEST);
     gl.disable(gl.BLEND);
     gl.viewport(0, 0, size, size);
@@ -146,18 +162,20 @@ export class OceanSimulation {
     gl.bindFramebuffer(gl.FRAMEBUFFER, null);
   }
 
-  // 繪製海面或浮標時，依序把三層的貼圖綁到指定的貼圖單元
+  // 繪製海面或浮標時，把各層的貼圖依序綁到從 firstUnit 開始的貼圖單元，回傳下一個可用的單元
   bindTextures(program, firstUnit) {
+    const count = this.cascades.length;
     this.cascades.forEach((cascade, i) => {
       program
         .tex(`u_displacement${i}`, cascade.displacement[this.current], firstUnit + i)
-        .tex(`u_derivatives${i}`, cascade.derivatives, firstUnit + 3 + i)
-        .tex(`u_slopeVariance${i}`, cascade.slopeVariance, firstUnit + 6 + i);
+        .tex(`u_derivatives${i}`, cascade.derivatives, firstUnit + count + i)
+        .tex(`u_slopeVariance${i}`, cascade.slopeVariance, firstUnit + 2 * count + i);
     });
-    return program
+    program
       .set('u_lengths', this.lengths)
       .set('u_texSize', this.size)
       .set('u_maxLod', this.maxLod);
+    return firstUnit + 3 * count;
   }
 
   dispose() {

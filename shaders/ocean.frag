@@ -12,16 +12,19 @@ in float v_height;
 uniform vec3 u_camPos;
 uniform vec3 u_sunDir;
 uniform vec3 u_sunColor;
-uniform vec3 u_lengths;
+uniform vec4 u_lengths;          // 四層海面區塊的邊長（公尺）
 uniform sampler2D u_displacement0;
 uniform sampler2D u_displacement1;
 uniform sampler2D u_displacement2;
+uniform sampler2D u_displacement3;
 uniform sampler2D u_derivatives0;
 uniform sampler2D u_derivatives1;
 uniform sampler2D u_derivatives2;
+uniform sampler2D u_derivatives3;
 uniform sampler2D u_slopeVariance0;
 uniform sampler2D u_slopeVariance1;
 uniform sampler2D u_slopeVariance2;
+uniform sampler2D u_slopeVariance3;
 uniform sampler2D u_sky;
 uniform sampler2D u_foamDetail;
 uniform vec3 u_scatterColor;     // 海水散射顏色（線性色彩空間）
@@ -47,10 +50,12 @@ void main() {
   vec4 derivatives = vec4(0.0);
   float variance = 0.0;
   float foam = 0.0;
-  addCascade(u_displacement0, u_derivatives0, u_slopeVariance0, u_lengths.x, 1.0, u_foamBias, derivatives, variance, foam);
-  addCascade(u_displacement1, u_derivatives1, u_slopeVariance1, u_lengths.y, 0.35, u_foamBias, derivatives, variance, foam);
+  // 最大一層只有湧浪與最長的風浪，在深海不會碎浪，所以不產生泡沫
+  addCascade(u_displacement0, u_derivatives0, u_slopeVariance0, u_lengths.x, 0.0, u_foamBias, derivatives, variance, foam);
+  addCascade(u_displacement1, u_derivatives1, u_slopeVariance1, u_lengths.y, 1.0, u_foamBias, derivatives, variance, foam);
+  addCascade(u_displacement2, u_derivatives2, u_slopeVariance2, u_lengths.z, 0.35, u_foamBias, derivatives, variance, foam);
   // 最小一層的波長只有幾十公分，不產生白浪，避免整片海面出現細碎雜點
-  addCascade(u_displacement2, u_derivatives2, u_slopeVariance2, u_lengths.z, 0.0, u_foamBias, derivatives, variance, foam);
+  addCascade(u_displacement3, u_derivatives3, u_slopeVariance3, u_lengths.w, 0.0, u_foamBias, derivatives, variance, foam);
 
   vec2 slope = derivatives.xy / max(1.0 + derivatives.zw, vec2(0.25));
   vec3 normal = normalize(vec3(-slope.x, 1.0, -slope.y));
