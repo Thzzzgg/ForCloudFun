@@ -1,5 +1,6 @@
 // 參數控制面板：把滑桿、顏色、音效與畫質設定綁定到參數物件
 import { formatTime, periodName } from './celestial.js';
+import { beaufort, SEA_PRESETS } from './beaufort.js';
 
 const direction = (v) => `<span class="arrow" style="transform: rotate(${v}deg)">↑</span>${Math.round(v)}°`;
 
@@ -7,7 +8,10 @@ const FORMATTERS = {
   time: (v) => `${formatTime(v)} ${periodName(v)}`,
   cloudCoverage: (v) => (v > 0 ? `${Math.round(v * 100)}%` : '無'),
   visibility: (v) => `${Math.round(v)} km`,
-  windSpeed: (v) => `${v.toFixed(1)} m/s`,
+  windSpeed: (v) => {
+    const { level, name } = beaufort(v);
+    return `${v.toFixed(1)} m/s · ${level} 級${name}`;
+  },
   windDirection: direction,
   heightScale: (v) => `${v.toFixed(2)}×`,
   choppiness: (v) => v.toFixed(2),
@@ -50,12 +54,33 @@ export function createControls(params, { onChange, onAudioToggle, onReset, onRes
   };
   timelapseButton.addEventListener('click', () => setTimelapse(!params.timelapse));
 
+  // 海況預設：一次設定風速、湧浪與天氣；目前的參數剛好和某個預設相同時，那個按鈕顯示為按下
+  const presetButtons = [...document.querySelectorAll('[data-preset]')];
+  const showPresets = () => {
+    for (const button of presetButtons) {
+      const preset = SEA_PRESETS[button.dataset.preset];
+      const active = Object.entries(preset).every(([key, value]) => params[key] === value);
+      button.setAttribute('aria-pressed', String(active));
+    }
+  };
+  for (const button of presetButtons) {
+    button.addEventListener('click', () => {
+      for (const [key, value] of Object.entries(SEA_PRESETS[button.dataset.preset])) {
+        params[key] = value;
+        refresh(key);
+        onChange(key);
+      }
+      showPresets();
+    });
+  }
+
   for (const key of Object.keys(FORMATTERS)) {
     const input = document.getElementById(key);
     input.addEventListener('input', () => {
       params[key] = parseFloat(input.value);
       showValue(key);
       onChange(key);
+      showPresets();
       if (key === 'time' && params.timelapse) setTimelapse(false);
     });
   }
@@ -133,6 +158,7 @@ export function createControls(params, { onChange, onAudioToggle, onReset, onRes
     quality.value = params.quality;
     showViewMode();
     showTimelapse();
+    showPresets();
   }
   sync();
 
