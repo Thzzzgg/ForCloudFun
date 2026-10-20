@@ -58,6 +58,12 @@
 
       <section>
         <h2>風與浪</h2>
+        <div class="segmented presets" role="group" aria-label="海況預設">
+          <button type="button" data-preset="calm" aria-pressed="false">平靜</button>
+          <button type="button" data-preset="moderate" aria-pressed="false">和風</button>
+          <button type="button" data-preset="strong" aria-pressed="false">強風</button>
+          <button type="button" data-preset="gale" aria-pressed="false">狂風</button>
+        </div>
         <div class="control">
           <label for="windSpeed">風速</label>
           <output data-for="windSpeed"></output>
@@ -78,7 +84,7 @@
           <output data-for="choppiness"></output>
           <input type="range" id="choppiness" min="0" max="1.5" step="0.05">
         </div>
-        <p class="hint">箭頭為浪前進的方向，朝上代表往遠方。風速超過約 14 m/s（蒲福 7 級）時，泡沫會沿風向拉成條紋，浪頭噴出被風吹散的飛沫。</p>
+        <p class="hint">上方按鈕一鍵切換海況，同時調整湧浪、雲量與能見度。箭頭為浪前進的方向，朝上代表往遠方。風速超過約 14 m/s（蒲福 7 級）時，泡沫會沿風向拉成條紋，浪頭噴出被風吹散的飛沫。</p>
       </section>
 
       <section>

@@ -348,9 +348,14 @@ select option {
   color: var(--text);
 }
 
-.segmented button[aria-checked="true"] {
+.segmented button[aria-checked="true"],
+.segmented button[aria-pressed="true"] {
   background: var(--accent);
   color: var(--accent-ink);
+}
+
+.segmented.presets {
+  grid-template-columns: repeat(4, 1fr);
 }
 
 .button:disabled {
