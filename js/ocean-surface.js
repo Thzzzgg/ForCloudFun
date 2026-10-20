@@ -1,5 +1,5 @@
 // 海面網格與繪製：網格固定在螢幕空間，由頂點著色器投射到海平面
-import { projectNdcY } from './camera.js';
+import { horizonNdcTop } from './camera.js';
 
 const GRID_X_EXTENT = 1.5;    // 左右延伸到畫面外（NDC）
 const GRID_BOTTOM = -3.0;     // 往下延伸到畫面外，避免浪峰抬高時露出網格邊緣
@@ -46,15 +46,9 @@ export class OceanSurface {
 
   draw({ camera, simulation, sky, foamDetail, sunDir, sunRadiance, scatterColor, foamBias, maxDistance, fogDensity }) {
     const { gl } = this;
-    // 網格頂端對齊海面最遠處（地平線）在畫面上的位置
-    const forward = [camera.forward[0], camera.forward[2]];
-    const flat = Math.hypot(forward[0], forward[1]) || 1;
-    const farPoint = [
-      camera.position[0] + (forward[0] / flat) * maxDistance,
-      0,
-      camera.position[2] + (forward[1] / flat) * maxDistance,
-    ];
-    const top = Math.min(projectNdcY(camera, farPoint) + 0.02, 1.2);
+    // 網格頂端對齊地平線在畫面上的位置（畫面傾斜時取最高點）
+    // 往上看時地平線可能在畫面下方，往下看時則在畫面上方之外，都要限制在合理範圍
+    const top = Math.min(Math.max(horizonNdcTop(camera, GRID_X_EXTENT) + 0.02, -1), 1.2);
 
     const program = this.program.use()
       .set('u_viewProjection', camera.viewProjection)

@@ -1,4 +1,4 @@
-// 固定視角的攝影機：矩陣採 column-major，與 WebGL 相同
+// 攝影機：由位置與 yaw（左右）、pitch（上下）、roll（傾斜）建立矩陣，採 column-major，與 WebGL 相同
 
 const DEG = Math.PI / 180;
 
@@ -27,8 +27,9 @@ function multiply(a, b) {
   return out;
 }
 
-export function createCamera({ pitch, fovY, near = 0.5, far = 40000 }) {
-  return { position: [0, 5, 0], yaw: 0, pitch: pitch * DEG, baseFovY: fovY * DEG, near, far };
+// 角度單位為弧度
+export function createCamera({ fovY, near = 0.5, far = 40000 }) {
+  return { position: [0, 5, 0], yaw: 0, pitch: 0, roll: 0, baseFovY: fovY, near, far };
 }
 
 export function updateCamera(camera, aspect) {
@@ -38,10 +39,15 @@ export function updateCamera(camera, aspect) {
     : Math.min(2 * Math.atan(Math.tan(camera.baseFovY / 2) / aspect ** 0.7), 80 * DEG);
   // 直式螢幕時鏡頭稍微往下，讓海面佔多一點畫面
   const pitch = camera.pitch - 4 * DEG * Math.min(Math.max((1 - aspect) / 0.45, 0), 1);
-  const { yaw, position: eye, near, far } = camera;
+  const { yaw, roll, position: eye, near, far } = camera;
   const forward = [Math.sin(yaw) * Math.cos(pitch), Math.sin(pitch), -Math.cos(yaw) * Math.cos(pitch)];
-  const right = normalize(cross(forward, [0, 1, 0]));
-  const up = cross(right, forward);
+  const flatRight = normalize(cross(forward, [0, 1, 0]));
+  const flatUp = cross(flatRight, forward);
+  // 繞著視線方向傾斜：roll 為負時鏡頭往右傾（畫面中的地平線變成左低右高），例如船往右舷傾
+  const c = Math.cos(roll);
+  const s = Math.sin(roll);
+  const right = flatRight.map((v, i) => v * c + flatUp[i] * s);
+  const up = flatUp.map((v, i) => v * c - flatRight[i] * s);
 
   const view = new Float32Array([
     right[0], up[0], -forward[0], 0,
@@ -61,15 +67,17 @@ export function updateCamera(camera, aspect) {
   camera.forward = forward;
   camera.right = right;
   camera.up = up;
+  camera.viewPitch = pitch;
   camera.tanHalfFov = [Math.tan(fovY / 2) * aspect, Math.tan(fovY / 2)];
   camera.viewProjection = multiply(projection, view);
   return camera;
 }
 
-// 世界座標點投影到畫面上的 NDC y 座標
-export function projectNdcY(camera, point) {
-  const m = camera.viewProjection;
-  const y = m[1] * point[0] + m[5] * point[1] + m[9] * point[2] + m[13];
-  const w = m[3] * point[0] + m[7] * point[1] + m[11] * point[2] + m[15];
-  return y / w;
+// 地平線在畫面上最高點的 NDC y 座標（在 x 介於 ±xExtent 的範圍內）
+// 不傾斜時地平線是一條水平線，y = tan(-pitch) / tan(半視角)；傾斜時還要加上斜率造成的高低差
+export function horizonNdcTop(camera, xExtent) {
+  const [tanHalfX, tanHalfY] = camera.tanHalfFov;
+  const center = Math.tan(-camera.viewPitch) / tanHalfY / Math.cos(camera.roll);
+  const slope = Math.abs(Math.tan(camera.roll)) * (tanHalfX / tanHalfY);
+  return center + slope * xExtent;
 }

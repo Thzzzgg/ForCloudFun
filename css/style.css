@@ -30,6 +30,48 @@ body {
   width: 100%;
   height: 100%;
   display: block;
+  cursor: grab;
+  touch-action: none; /* 拖曳與雙指縮放交給程式處理，不讓瀏覽器捲動或放大頁面 */
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+#ocean.dragging {
+  cursor: grabbing;
+}
+
+#ocean:focus {
+  outline: none;
+}
+
+#ocean:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -4px;
+}
+
+/* 操作提示：載入後顯示幾秒，開始操作就淡出 */
+.hint-toast {
+  position: fixed;
+  left: 50%;
+  bottom: calc(24px + env(safe-area-inset-bottom, 0px));
+  z-index: 4;
+  max-width: calc(100vw - 32px);
+  padding: 8px 16px;
+  border: 1px solid var(--panel-border);
+  border-radius: 999px;
+  background: var(--panel-bg);
+  -webkit-backdrop-filter: blur(10px);
+  backdrop-filter: blur(10px);
+  color: var(--text);
+  font-size: 13px;
+  text-align: center;
+  pointer-events: none;
+  transform: translateX(-50%);
+  transition: opacity 0.6s ease;
+}
+
+.hint-toast.hidden {
+  opacity: 0;
 }
 
 /* 載入與錯誤畫面 */
@@ -279,6 +321,38 @@ select option {
   background: rgba(255, 255, 255, 0.06);
 }
 
+/* 兩個選項的切換鈕（視角模式） */
+.segmented {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4px;
+  margin-bottom: 10px;
+  padding: 3px;
+  border: 1px solid var(--panel-border);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.segmented button {
+  padding: 7px 8px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--text-dim);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.segmented button:hover {
+  color: var(--text);
+}
+
+.segmented button[aria-checked="true"] {
+  background: var(--accent);
+  color: var(--accent-ink);
+}
+
 .button:disabled {
   opacity: 0.5;
   cursor: not-allowed;
@@ -342,8 +416,20 @@ select option {
   font-variant-numeric: tabular-nums;
 }
 
-/* 手機：面板改到畫面下方 */
+@media (prefers-reduced-motion: reduce) {
+  .hint-toast,
+  .status {
+    transition: none;
+  }
+}
+
+/* 手機：面板改到畫面下方，操作提示改到上方 */
 @media (max-width: 600px) {
+  .hint-toast {
+    top: calc(16px + env(safe-area-inset-top, 0px));
+    bottom: auto;
+  }
+
   .panel {
     top: auto;
     right: calc(16px + var(--inset-right));

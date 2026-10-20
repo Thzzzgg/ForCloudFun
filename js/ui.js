@@ -14,7 +14,7 @@ const FORMATTERS = {
   volume: (v) => `${Math.round(v * 100)}%`,
 };
 
-export function createControls(params, { onChange, onAudioToggle, onReset }) {
+export function createControls(params, { onChange, onAudioToggle, onReset, onResetView }) {
   const panel = document.getElementById('panel');
   const toggle = document.getElementById('panel-toggle');
   const audioButton = document.getElementById('audioToggle');
@@ -54,6 +54,33 @@ export function createControls(params, { onChange, onAudioToggle, onReset }) {
     onChange('quality');
   });
 
+  // 視角模式：兩個按鈕組成的單選群組，左右方向鍵也能切換
+  const viewButtons = [...document.querySelectorAll('[data-view]')];
+  const showViewMode = () => {
+    for (const button of viewButtons) {
+      const selected = button.dataset.view === params.viewMode;
+      button.setAttribute('aria-checked', String(selected));
+      button.tabIndex = selected ? 0 : -1;
+    }
+  };
+  const selectView = (button) => {
+    params.viewMode = button.dataset.view;
+    showViewMode();
+    onChange('viewMode');
+  };
+  viewButtons.forEach((button, index) => {
+    button.addEventListener('click', () => selectView(button));
+    button.addEventListener('keydown', (event) => {
+      const step = { ArrowRight: 1, ArrowDown: 1, ArrowLeft: -1, ArrowUp: -1 }[event.key];
+      if (!step) return;
+      event.preventDefault();
+      const next = viewButtons[(index + step + viewButtons.length) % viewButtons.length];
+      next.focus();
+      selectView(next);
+    });
+  });
+  document.getElementById('resetView').addEventListener('click', () => onResetView());
+
   const setAudioState = (on) => {
     audioButton.setAttribute('aria-pressed', String(on));
     audioButton.textContent = on ? '關閉海浪聲' : '開啟海浪聲';
@@ -83,6 +110,7 @@ export function createControls(params, { onChange, onAudioToggle, onReset }) {
     }
     color.value = params.waterColor;
     quality.value = params.quality;
+    showViewMode();
   }
   sync();
 
