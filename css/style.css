@@ -58,7 +58,7 @@ body {
   max-width: calc(100vw - 32px);
   padding: 8px 16px;
   border: 1px solid var(--panel-border);
-  border-radius: 999px;
+  border-radius: 18px; /* 手機上提示折成兩三行時仍是圓角矩形 */
   background: var(--panel-bg);
   -webkit-backdrop-filter: blur(10px);
   backdrop-filter: blur(10px);

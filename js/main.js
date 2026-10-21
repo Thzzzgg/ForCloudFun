@@ -9,6 +9,8 @@ import { cloudThreshold, fogDensity, hazeDepth } from './weather.js';
 import { foamStreaks, sprayAmount, windVelocity } from './storm.js';
 import { Spray } from './spray.js';
 import { Splashes } from './splash.js';
+import { Gulls } from './gulls.js';
+import { Ships, lightsOn } from './ships.js';
 import { Buoy, BUOY_FOOTPRINT, buoyFoamAmount, buoyPose } from './buoy.js';
 import { BellClapper, strikeStrength } from './bell.js';
 import { PostProcess } from './post.js';
@@ -26,7 +28,7 @@ const SHADERS = [
   'spectrum-init.frag', 'spectrum-time.frag', 'fft.frag', 'assemble.frag', 'probe.frag', 'pick.frag',
   'sky-transmittance.frag', 'sky-multiscatter.frag', 'sky-precompute.frag', 'sky-clouds.frag', 'sky.frag',
   'ocean.vert', 'ocean.frag', 'buoy.vert', 'buoy.frag', 'spray-update.frag', 'spray.vert', 'spray.frag',
-  'splash.vert', 'splash.frag',
+  'splash.vert', 'splash.frag', 'object.frag', 'gull.vert', 'ship.vert', 'lights.vert', 'lights.frag',
   'bloom-prefilter.frag', 'bloom-down.frag', 'bloom-up.frag', 'composite.frag',
 ];
 
@@ -81,6 +83,7 @@ const DEFAULTS = {
   foam: 0.5,
   waterColor: '#0e6a77',
   volume: 0.6,
+  scenery: true, // 海鷗與遠方的船
   quality: 'auto',
   viewMode: 'orbit',
 };
@@ -144,6 +147,9 @@ function buildPrograms(gl, sources) {
     sprayUpdate: fullscreen('spray-update.frag'),
     spray: new Program(gl, sources['spray.vert'], sources['spray.frag'], 'spray'),
     splash: new Program(gl, sources['splash.vert'], sources['splash.frag'], 'splash'),
+    gull: new Program(gl, sources['gull.vert'], sources['object.frag'], 'gull'),
+    ship: new Program(gl, sources['ship.vert'], sources['object.frag'], 'ship'),
+    lights: new Program(gl, sources['lights.vert'], sources['lights.frag'], 'lights'),
     bloomPrefilter: fullscreen('bloom-prefilter.frag'),
     bloomDown: fullscreen('bloom-down.frag'),
     bloomUp: fullscreen('bloom-up.frag'),
@@ -165,6 +171,8 @@ async function main() {
   const buoy = new Buoy(gl, programs.buoy, { anchor: CONFIG.buoyAnchor });
   const spray = new Spray(gl, programs);
   const splashes = new Splashes(gl, programs);
+  const gulls = new Gulls(gl, programs.gull, { home: CONFIG.buoyAnchor });
+  const ships = new Ships(gl, programs);
   const camera = createCamera({ fovY: CONFIG.view.orbit.fovY * DEG });
   const rig = createRig();
   const probe = new WaveProbe(gl, programs.probe);
@@ -337,6 +345,8 @@ async function main() {
       getTime: () => time, // 動畫時間（秒），例如用來等浮標燈號亮起
       bell,
       splashes,
+      gulls: gulls.flock,
+      ships: ships.traffic,
       // 在海面的 (x, z) 濺起水花：從正上方往下找海面，和點擊水面走同一條路徑
       splashAt: (x, z, strength = 1) => splashes.pick([x, 60, z], [0, -1, 0], strength),
     };
@@ -475,6 +485,13 @@ async function main() {
     }
 
     const env = updateEnvironment(now, dt);
+    // 海鷗與遠方的船：海鷗白天才出來，船在夜晚或起霧時開航行燈
+    if (params.scenery) {
+      const calls = gulls.update(dt, { sunElevation: env.sunDir[1], windSpeed: params.windSpeed, wind: env.wind });
+      if (audio.enabled) for (const call of calls) audio.gullCall(call, placeSound(call.position));
+      const lights = lightsOn({ sunElevation: env.sunDir[1], visibility: params.visibility });
+      ships.update(dt, { significantHeight: stats.significantHeight, windSpeed: params.windSpeed, lights }, camera);
+    }
     spray.update({ simulation, camera, deltaTime: dt, wind: env.wind, amount: sprayAmount(params.windSpeed) });
     sky.update(camera, env);
     post.beginScene();
@@ -496,6 +513,11 @@ async function main() {
       ripples: splashes.rippleUniforms(time),
     });
     buoy.draw({ ...shared, foamDetail, contactFoam: buoyFoamAmount(stats.significantHeight) });
+    if (params.scenery) {
+      // 航行燈在畫面上約 3 個 CSS 像素大
+      ships.draw({ ...shared, pointSize: (3 * canvas.height) / Math.max(canvas.clientHeight, 1) });
+      gulls.draw(shared);
+    }
     spray.draw({ ...shared, foamDetail, count: QUALITY[tier].spray });
     splashes.draw({ ...shared, viewportHeight: canvas.height });
     post.endScene();
