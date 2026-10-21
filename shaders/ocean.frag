@@ -1,11 +1,13 @@
 #version 300 es
-// 海面著色：天空與浮標的反射（Fresnel）、太陽與月亮的高光（GGX）、次表面散射、白浪泡沫、雲影與大氣透視
+// 海面著色：天空與浮標的反射（Fresnel）、太陽與月亮的高光（GGX）、次表面散射、白浪泡沫、雲影與大氣透視，
+// 以及點擊水面產生的漣漪與泡沫
 precision highp float;
 precision highp sampler2D;
 
 #include "common.glsl"
 #include "clouds.glsl"
 #include "buoy.glsl"
+#include "ripples.glsl"
 
 in vec3 v_worldPos;
 in vec2 v_restXZ;
@@ -41,6 +43,8 @@ uniform int u_buoyProbe;         // 浮標在取樣結果中的欄位
 uniform vec2 u_buoyAnchor;       // 浮標錨定的海面位置 (x, z)
 uniform float u_buoyFoam;        // 吃水線泡沫圈的強度（0～1），浪越大越寬、越密
 uniform float u_lampIntensity;   // 浮標燈號在畫面上的亮度
+uniform vec4 u_ripples[MAX_RIPPLES]; // 點擊水面產生的漣漪：(靜止 x, 靜止 z, 經過的秒數, 初始凹陷的深度)
+uniform int u_rippleCount;
 uniform float u_time;
 
 out vec4 fragColor;
@@ -69,6 +73,18 @@ void main() {
   addCascade(u_displacement3, u_derivatives3, u_slopeVariance3, u_lengths.w, 0.0, u_foamBias, derivatives, variance, foam);
 
   vec2 slope = derivatives.xy / max(1.0 + derivatives.zw, vec2(0.25));
+
+  // 點擊水面產生的漣漪疊加在坡度上，太細而畫不出來的部分改算進粗糙度；落水處留下一團泡沫
+  vec2 footprint = fwidth(v_restXZ);
+  float pixel = max(footprint.x, footprint.y);
+  float splashFoam = 0.0;
+  for (int i = 0; i < MAX_RIPPLES; i++) {
+    if (i >= u_rippleCount) break;
+    vec4 wave = ripple(v_restXZ - u_ripples[i].xy, u_ripples[i].z, u_ripples[i].w, pixel);
+    slope += wave.xy;
+    splashFoam = max(splashFoam, wave.z);
+    variance += wave.w;
+  }
   vec3 normal = normalize(vec3(-slope.x, 1.0, -slope.y));
 
   vec3 toCamera = u_camPos - v_worldPos;
@@ -165,6 +181,9 @@ void main() {
   float bubbles = 0.6 * bubbleNoise.r + 0.4 * bubbleNoise.g;
   float ringThreshold = 1.0 - 0.75 * ring;
   foamMask = max(foamMask, smoothstep(ringThreshold, ringThreshold + 0.25, bubbles) * smoothstep(0.0, 0.3, ring) * 0.9);
+  // 落水處的泡沫：和吃水線的泡沫圈一樣是翻動的氣泡紋理
+  float splashThreshold = 1.0 - 0.9 * splashFoam;
+  foamMask = max(foamMask, smoothstep(splashThreshold, splashThreshold + 0.2, bubbles) * smoothstep(0.0, 0.2, splashFoam) * 0.9);
 
   color = mix(color, vec3(0.75) * foamLight, foamMask);
 

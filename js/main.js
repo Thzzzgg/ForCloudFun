@@ -8,6 +8,7 @@ import { sunDirection, moonDirection, skyRotation } from './celestial.js';
 import { cloudThreshold, fogDensity, hazeDepth } from './weather.js';
 import { foamStreaks, sprayAmount, windVelocity } from './storm.js';
 import { Spray } from './spray.js';
+import { Splashes } from './splash.js';
 import { Buoy, BUOY_FOOTPRINT, buoyFoamAmount, buoyPose } from './buoy.js';
 import { BellClapper, strikeStrength } from './bell.js';
 import { PostProcess } from './post.js';
@@ -21,10 +22,11 @@ import { WaveProbe } from './wave-probe.js';
 import { AdaptiveQuality } from './quality.js';
 
 const SHADERS = [
-  'common.glsl', 'atmosphere.glsl', 'clouds.glsl', 'buoy.glsl', 'fullscreen.vert',
-  'spectrum-init.frag', 'spectrum-time.frag', 'fft.frag', 'assemble.frag', 'probe.frag',
+  'common.glsl', 'atmosphere.glsl', 'clouds.glsl', 'buoy.glsl', 'ripples.glsl', 'fullscreen.vert',
+  'spectrum-init.frag', 'spectrum-time.frag', 'fft.frag', 'assemble.frag', 'probe.frag', 'pick.frag',
   'sky-transmittance.frag', 'sky-multiscatter.frag', 'sky-precompute.frag', 'sky-clouds.frag', 'sky.frag',
   'ocean.vert', 'ocean.frag', 'buoy.vert', 'buoy.frag', 'spray-update.frag', 'spray.vert', 'spray.frag',
+  'splash.vert', 'splash.frag',
   'bloom-prefilter.frag', 'bloom-down.frag', 'bloom-up.frag', 'composite.frag',
 ];
 
@@ -131,6 +133,7 @@ function buildPrograms(gl, sources) {
     fft: fullscreen('fft.frag'),
     assemble: fullscreen('assemble.frag'),
     probe: fullscreen('probe.frag'),
+    pick: fullscreen('pick.frag'),
     skyTransmittance: fullscreen('sky-transmittance.frag'),
     skyMultiScattering: fullscreen('sky-multiscatter.frag'),
     skyPrecompute: fullscreen('sky-precompute.frag'),
@@ -140,6 +143,7 @@ function buildPrograms(gl, sources) {
     buoy: new Program(gl, sources['buoy.vert'], sources['buoy.frag'], 'buoy'),
     sprayUpdate: fullscreen('spray-update.frag'),
     spray: new Program(gl, sources['spray.vert'], sources['spray.frag'], 'spray'),
+    splash: new Program(gl, sources['splash.vert'], sources['splash.frag'], 'splash'),
     bloomPrefilter: fullscreen('bloom-prefilter.frag'),
     bloomDown: fullscreen('bloom-down.frag'),
     bloomUp: fullscreen('bloom-up.frag'),
@@ -160,6 +164,7 @@ async function main() {
   const post = new PostProcess(gl, programs);
   const buoy = new Buoy(gl, programs.buoy, { anchor: CONFIG.buoyAnchor });
   const spray = new Spray(gl, programs);
+  const splashes = new Splashes(gl, programs);
   const camera = createCamera({ fovY: CONFIG.view.orbit.fovY * DEG });
   const rig = createRig();
   const probe = new WaveProbe(gl, programs.probe);
@@ -169,7 +174,7 @@ async function main() {
 
   // 第一次載入時提示操作方式，使用者開始操作或幾秒後自動淡出；觸控裝置沒有滾輪
   const hint = document.getElementById('hint');
-  if (window.matchMedia('(pointer: coarse)').matches) hint.textContent = '拖曳畫面旋轉視角，雙指縮放';
+  if (window.matchMedia('(pointer: coarse)').matches) hint.textContent = '拖曳畫面旋轉視角，雙指縮放，點一下水面濺起水花';
   let hintTimer = null;
   let hintDismissed = false;
   const hideHint = () => {
@@ -177,7 +182,18 @@ async function main() {
     clearTimeout(hintTimer);
     hint.classList.add('hidden');
   };
-  attachCameraInput(canvas, rig, { onInteract: hideHint });
+  // 點一下水面：從鏡頭沿著點到的方向找海面，在那裡濺起水花（大小每次略有不同）
+  const splashAtScreen = (clientX, clientY) => {
+    if (!camera.forward) return; // 第一幀畫出來之前還沒有視角
+    const rect = canvas.getBoundingClientRect();
+    const x = ((clientX - rect.left) / rect.width) * 2 - 1;
+    const y = 1 - ((clientY - rect.top) / rect.height) * 2;
+    const { forward, right, up, tanHalfFov } = camera;
+    const direction = forward.map((v, i) => v + x * tanHalfFov[0] * right[i] + y * tanHalfFov[1] * up[i]);
+    const length = Math.hypot(...direction);
+    splashes.pick(camera.position, direction.map((v) => v / length), 0.8 + 0.4 * Math.random());
+  };
+  attachCameraInput(canvas, rig, { onInteract: hideHint, onTap: splashAtScreen });
 
   let simulation = null;
   let surface = null;
@@ -320,6 +336,9 @@ async function main() {
       getFrameCount: () => frameCount,
       getTime: () => time, // 動畫時間（秒），例如用來等浮標燈號亮起
       bell,
+      splashes,
+      // 在海面的 (x, z) 濺起水花：從正上方往下找海面，和點擊水面走同一條路徑
+      splashAt: (x, z, strength = 1) => splashes.pick([x, 60, z], [0, -1, 0], strength),
     };
   }
 
@@ -334,7 +353,15 @@ async function main() {
     };
   }
 
-  // 鐘浮標：有新的浮標取樣時更新鐘錘，撞到鐘就合成鐘聲；聲音依鐘與鏡頭的方向、距離調整
+  // 聲音的方位：依音源相對鏡頭的方向與距離調整左右聲道與音量
+  function placeSound(position) {
+    const toSource = position.map((v, i) => v - camera.position[i]);
+    const distance = Math.hypot(...toSource);
+    const side = toSource.reduce((sum, v, i) => sum + v * camera.right[i], 0) / Math.max(distance, 1e-3);
+    return { pan: side * 0.8, distance };
+  }
+
+  // 鐘浮標：有新的浮標取樣時更新鐘錘，撞到鐘就合成鐘聲，聲音從鐘的方向傳來
   // 鐘錘的模擬很便宜，音效關閉時也照常計算，打開音效時才不會因為狀態中斷而突然猛敲一下
   function updateBell() {
     const water = probe.results[BUOY_PROBE];
@@ -344,12 +371,7 @@ async function main() {
     const strikes = bell.addSample(pose, probe.resultsTime);
     if (!audio.enabled) return;
     const bellPosition = pose.center.map((v, i) => v + pose.up[i] * bell.pivotHeight);
-    for (const speed of strikes) {
-      const toBell = bellPosition.map((v, i) => v - camera.position[i]);
-      const distance = Math.hypot(...toBell);
-      const side = toBell.reduce((sum, v, i) => sum + v * camera.right[i], 0) / Math.max(distance, 1e-3);
-      audio.ringBell(strikeStrength(speed), { pan: side * 0.8, distance });
-    }
+    for (const speed of strikes) audio.ringBell(strikeStrength(speed), placeSound(bellPosition));
   }
 
   function applyAdaptiveChange() {
@@ -447,6 +469,10 @@ async function main() {
     const buoyPoint = { x: CONFIG.buoyAnchor[0], z: CONFIG.buoyAnchor[1], footprint: BUOY_FOOTPRINT };
     probe.sample(simulation, [...rig.probePoints(), buoyPoint], time);
     updateBell();
+    // 點擊水面：拾取結果讀回後濺起水花，播放落水聲
+    for (const { position, strength } of splashes.update({ simulation, time, deltaTime: dt })) {
+      audio.splash(strength, placeSound(position));
+    }
 
     const env = updateEnvironment(now, dt);
     spray.update({ simulation, camera, deltaTime: dt, wind: env.wind, amount: sprayAmount(params.windSpeed) });
@@ -467,9 +493,11 @@ async function main() {
         foam: buoyFoamAmount(stats.significantHeight),
         lampIntensity: Buoy.lampIntensity(time),
       },
+      ripples: splashes.rippleUniforms(time),
     });
     buoy.draw({ ...shared, foamDetail, contactFoam: buoyFoamAmount(stats.significantHeight) });
     spray.draw({ ...shared, foamDetail, count: QUALITY[tier].spray });
+    splashes.draw({ ...shared, viewportHeight: canvas.height });
     post.endScene();
     post.render({ sky: sky.texture, bloomStrength: CONFIG.bloomStrength, time });
     frameCount++;

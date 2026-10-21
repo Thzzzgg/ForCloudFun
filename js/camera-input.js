@@ -1,12 +1,16 @@
-// 把滑鼠、觸控與鍵盤操作轉成視角控制：拖曳旋轉、滾輪或雙指縮放、雙擊重設
+// 把滑鼠、觸控與鍵盤操作轉成視角控制：拖曳旋轉、滾輪或雙指縮放、雙擊重設；
+// 沒有拖曳的單擊（或輕點）交給 onTap，例如點水面濺起水花
 // 鍵盤（畫面取得焦點時）：方向鍵轉動視線，+／- 縮放，0 重設
 
 const KEY_TURN = Math.PI / 24; // 每按一次方向鍵轉 7.5°
 const WHEEL_SENSITIVITY = 0.0015;
+const TAP_SLOP = 6; // 按下後移動超過這麼多像素就算拖曳，不是點擊
 
-export function attachCameraInput(element, rig, { onInteract = () => {} } = {}) {
+export function attachCameraInput(element, rig, { onInteract = () => {}, onTap = () => {} } = {}) {
   const pointers = new Map();
   let pinchSpan = null;
+  let pressStart = null; // 第一根手指（或滑鼠）按下的位置
+  let dragged = false; // 這次按下之後拖曳過或用了雙指，放開時就不算點擊
 
   const currentSpan = () => {
     const [a, b] = [...pointers.values()];
@@ -22,6 +26,12 @@ export function attachCameraInput(element, rig, { onInteract = () => {} } = {}) 
       // 忽略
     }
     pointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
+    if (pointers.size === 1) {
+      pressStart = { x: event.clientX, y: event.clientY };
+      dragged = false;
+    } else {
+      dragged = true;
+    }
     pinchSpan = pointers.size === 2 ? currentSpan() : null;
     element.classList.add('dragging');
     onInteract();
@@ -32,6 +42,7 @@ export function attachCameraInput(element, rig, { onInteract = () => {} } = {}) 
     if (!previous) return;
     const point = { x: event.clientX, y: event.clientY };
     pointers.set(event.pointerId, point);
+    if (Math.hypot(point.x - pressStart.x, point.y - pressStart.y) > TAP_SLOP) dragged = true;
     if (pointers.size === 1) {
       rig.rotate(point.x - previous.x, point.y - previous.y, element.clientHeight);
     } else if (pointers.size === 2) {
@@ -57,6 +68,12 @@ export function attachCameraInput(element, rig, { onInteract = () => {} } = {}) 
     rig.zoom(Math.exp(event.deltaY * unit * WHEEL_SENSITIVITY));
     onInteract();
   }, { passive: false });
+
+  // 雙擊的第二下（detail 為 2）只重設視角，不再算一次點擊
+  element.addEventListener('click', (event) => {
+    if (dragged || event.detail > 1) return;
+    onTap(event.clientX, event.clientY);
+  });
 
   element.addEventListener('dblclick', () => {
     rig.reset();

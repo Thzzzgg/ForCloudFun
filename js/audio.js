@@ -1,5 +1,5 @@
 // 海浪環境音效：以 Web Audio 即時合成，不需要任何音檔
-// 底噪（遠方海浪的低頻隆隆聲）＋ 浪潮起伏 ＋ 依浪週期隨機觸發的碎浪聲 ＋ 隨風速增強的風聲 ＋ 浮標的鐘聲
+// 底噪（遠方海浪的低頻隆隆聲）＋ 浪潮起伏 ＋ 依浪週期隨機觸發的碎浪聲 ＋ 隨風速增強的風聲 ＋ 浮標的鐘聲 ＋ 點擊水面的落水聲
 
 const NOISE_SECONDS = 6;
 
@@ -274,6 +274,79 @@ export class OceanAudio {
 
     // 最長的泛音結束後拆掉整串節點
     longest.onended = () => last.disconnect();
+  }
+
+  // 落水聲：石頭入水的「噗通」（水中氣泡共振、音高往上滑的短音）＋ 水花的嘩啦聲 ＋ 水滴落回水面的滴答聲
+  // strength 為水花的大小（約 0.5～1.5），pan 與 distance 同鐘聲
+  splash(strength, { pan = 0, distance = 30 } = {}) {
+    if (!this.ctx || !this.enabled) return;
+    const { ctx } = this;
+    const time = ctx.currentTime + 0.02;
+    const output = ctx.createGain();
+    output.gain.value = (0.9 * Math.min(strength, 1.5)) / (1 + distance / 15);
+    const air = ctx.createBiquadFilter();
+    air.type = 'lowpass';
+    air.frequency.value = 12000 / (1 + distance / 60);
+    output.connect(air);
+    let last = air;
+    if (ctx.createStereoPanner) {
+      last = ctx.createStereoPanner();
+      last.pan.value = pan;
+      air.connect(last);
+    }
+    last.connect(this.master);
+
+    // 噗通：入水時被拖進水裡的氣泡收縮，發出往上滑的短音
+    const plop = ctx.createOscillator();
+    plop.frequency.setValueAtTime(260 / Math.sqrt(strength), time);
+    plop.frequency.exponentialRampToValueAtTime(900 / Math.sqrt(strength), time + 0.09);
+    const plopGain = ctx.createGain();
+    plopGain.gain.setValueAtTime(0.0001, time);
+    plopGain.gain.exponentialRampToValueAtTime(0.5, time + 0.005);
+    plopGain.gain.exponentialRampToValueAtTime(0.0001, time + 0.16);
+    plop.connect(plopGain).connect(output);
+    plop.start(time);
+    plop.stop(time + 0.2);
+
+    // 嘩啦：寬頻的水花聲，很快衰減
+    const end = time + 0.6;
+    const wash = ctx.createBufferSource();
+    wash.buffer = this.buffers.white;
+    const band = ctx.createBiquadFilter();
+    band.type = 'bandpass';
+    band.frequency.value = 1600;
+    band.Q.value = 0.6;
+    const washGain = ctx.createGain();
+    washGain.gain.setValueAtTime(0.0001, time);
+    washGain.gain.exponentialRampToValueAtTime(0.35, time + 0.01);
+    washGain.gain.exponentialRampToValueAtTime(0.0001, end);
+    wash.connect(band).connect(washGain).connect(output);
+    wash.start(time, Math.random() * (NOISE_SECONDS - 0.7));
+    wash.stop(end + 0.05);
+
+    // 滴答：水花落回水面的一顆顆水滴，每顆是很短、音高往上滑的小水泡聲
+    let lastDrop = plop;
+    let lastEnd = time + 0.2;
+    for (let i = 0; i < 9; i++) {
+      const at = time + 0.25 + Math.random() * 0.7;
+      const drop = ctx.createOscillator();
+      const pitch = 1400 + Math.random() * 1800;
+      drop.frequency.setValueAtTime(pitch, at);
+      drop.frequency.exponentialRampToValueAtTime(pitch * 1.6, at + 0.025);
+      const dropGain = ctx.createGain();
+      dropGain.gain.setValueAtTime(0.0001, at);
+      dropGain.gain.exponentialRampToValueAtTime(0.03 + Math.random() * 0.05, at + 0.003);
+      dropGain.gain.exponentialRampToValueAtTime(0.0001, at + 0.04);
+      drop.connect(dropGain).connect(output);
+      drop.start(at);
+      drop.stop(at + 0.05);
+      if (at + 0.05 > lastEnd) {
+        lastDrop = drop;
+        lastEnd = at + 0.05;
+      }
+    }
+    // 水花聲與水滴聲都結束後拆掉整串節點
+    (lastEnd > end ? lastDrop : wash).onended = () => last.disconnect();
   }
 
   // 碎浪：帶通噪音由高頻往低頻掃，加上泡沫的嘶嘶聲
