@@ -321,6 +321,23 @@ select option {
   background: rgba(255, 255, 255, 0.06);
 }
 
+/* 分享連結：無法自動複製時讓使用者自己選取 */
+.share-link {
+  width: 100%;
+  margin-bottom: 12px;
+  padding: 7px 9px;
+  border: 1px solid var(--panel-border);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--text-dim);
+  font: inherit;
+  font-size: 12px;
+}
+
+.share-link[hidden] {
+  display: none;
+}
+
 /* 兩個選項的切換鈕（視角模式） */
 .segmented {
   display: grid;

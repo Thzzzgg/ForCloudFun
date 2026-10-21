@@ -12,6 +12,7 @@
   <canvas id="ocean" tabindex="0" aria-label="即時模擬的海面畫面：拖曳旋轉視角，滾輪或雙指縮放，方向鍵也可以轉動視角；點一下水面會濺起水花"></canvas>
 
   <div id="hint" class="hint-toast hidden" aria-hidden="true">拖曳畫面旋轉視角，滾輪或雙指縮放，點一下水面濺起水花</div>
+  <div id="toast" class="hint-toast hidden" role="status" aria-live="polite"></div>
 
   <div id="status" class="status" role="status">
     <div class="spinner" aria-hidden="true"></div>
@@ -164,7 +165,10 @@
             <div><dt>抗鋸齒</dt><dd data-perf="antialiasing">–</dd></div>
           </dl>
         </details>
+        <button id="share" class="button" type="button">複製分享連結</button>
+        <input id="shareLink" class="share-link" type="text" readonly aria-label="分享連結" hidden>
         <button id="reset" class="button secondary" type="button">恢復預設值</button>
+        <p class="hint">設定會自動記在這台裝置上，下次開啟時還原；分享連結帶著目前的海況、天氣與時間。</p>
       </section>
     </div>
   </aside>
