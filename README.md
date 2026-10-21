@@ -2,6 +2,8 @@
 
 以 WebGL2 即時模擬的擬真海洋網站。海面由 FFT（快速傅立葉轉換）海洋頻譜在 GPU 上計算，不使用任何外部函式庫。
 
+線上展示：<https://thzzzgg.github.io/ForCloudFun/>
+
 ## 功能
 
 - **FFT 海洋模擬**：採用 JONSWAP 頻譜與 Donelan-Banner 方向分布，四層不同尺度（2000 m、250 m、17 m、5 m）疊加，看不出重複圖樣。
@@ -42,7 +44,9 @@ python3 -m http.server 8000
 
 接著用瀏覽器開啟 <http://localhost:8000>。
 
-也可以直接用 GitHub Pages 發佈：在儲存庫的 **Settings → Pages** 選擇 `main` 分支的根目錄即可。
+### 發佈到 GitHub Pages
+
+網站以 GitHub Pages 從 `main` 分支的根目錄發佈到 <https://thzzzgg.github.io/ForCloudFun/>，不需要建置步驟。第一次要在儲存庫的 **Settings → Pages** 把 **Source** 設為 **Deploy from a branch**，分支選 `main`、資料夾選 `/ (root)` 後儲存；之後每次合併到 `main`，約一兩分鐘後網站就會更新。根目錄的 `.nojekyll` 讓 Pages 直接提供原始檔案，不經過 Jekyll 處理。
 
 ### 瀏覽器需求
 
