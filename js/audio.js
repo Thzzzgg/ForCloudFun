@@ -1,5 +1,5 @@
 // 海浪環境音效：以 Web Audio 即時合成，不需要任何音檔
-// 底噪（遠方海浪的低頻隆隆聲）＋ 浪潮起伏 ＋ 依浪週期隨機觸發的碎浪聲 ＋ 隨風速增強的風聲 ＋ 浮標的鐘聲 ＋ 點擊水面的落水聲
+// 底噪（遠方海浪的低頻隆隆聲）＋ 浪潮起伏 ＋ 依浪週期隨機觸發的碎浪聲 ＋ 隨風速增強的風聲 ＋ 浮標的鐘聲 ＋ 點擊水面的落水聲 ＋ 海鷗的叫聲
 
 const NOISE_SECONDS = 6;
 
@@ -347,6 +347,69 @@ export class OceanAudio {
     }
     // 水花聲與水滴聲都結束後拆掉整串節點
     (lastEnd > end ? lastDrop : wash).onended = () => last.disconnect();
+  }
+
+  // 海鷗叫聲：一串「嘎—嘎」的短音，第一聲較長；每聲音高先升後降，經過兩個共振峰塑造鳴管的音色，
+  // 再加上每秒幾十次的振幅抖動，產生沙啞的鼻音。notes 為幾聲，pitch 為音高的倍率（每隻略有不同）
+  gullCall({ notes = 3, pitch = 1 } = {}, { pan = 0, distance = 40 } = {}) {
+    if (!this.ctx || !this.enabled) return;
+    const { ctx } = this;
+    const output = ctx.createGain();
+    output.gain.value = 0.35 / (1 + distance / 25);
+    const air = ctx.createBiquadFilter();
+    air.type = 'lowpass';
+    air.frequency.value = 10000 / (1 + distance / 100);
+    output.connect(air);
+    let last = air;
+    if (ctx.createStereoPanner) {
+      last = ctx.createStereoPanner();
+      last.pan.value = pan;
+      air.connect(last);
+    }
+    last.connect(this.master);
+    const voice = ctx.createGain();
+    for (const [frequency, q, level] of [[2100, 2.5, 1], [3600, 3, 0.6]]) {
+      const formant = ctx.createBiquadFilter();
+      formant.type = 'bandpass';
+      formant.frequency.value = frequency * pitch;
+      formant.Q.value = q;
+      const gain = ctx.createGain();
+      gain.gain.value = level;
+      voice.connect(formant).connect(gain).connect(output);
+    }
+
+    let time = ctx.currentTime + 0.05;
+    let lastNote = null;
+    for (let i = 0; i < notes; i++) {
+      const duration = (i === 0 ? 0.42 : 0.26) * (0.9 + 0.2 * Math.random());
+      const base = 720 * pitch * (i === 0 ? 0.92 : 1);
+      const note = ctx.createOscillator();
+      note.type = 'sawtooth';
+      note.frequency.setValueAtTime(base, time);
+      note.frequency.linearRampToValueAtTime(base * 1.45, time + duration * 0.35);
+      note.frequency.linearRampToValueAtTime(base * 1.05, time + duration);
+      // 沙啞感：振幅在 0.4～1 之間快速抖動，再乘上整聲的音量包絡
+      const rasp = ctx.createOscillator();
+      rasp.frequency.value = 60 + Math.random() * 25;
+      const raspDepth = ctx.createGain();
+      raspDepth.gain.value = 0.3;
+      const tremolo = ctx.createGain();
+      tremolo.gain.value = 0.7;
+      rasp.connect(raspDepth).connect(tremolo.gain);
+      const envelope = ctx.createGain();
+      envelope.gain.setValueAtTime(0.0001, time);
+      envelope.gain.exponentialRampToValueAtTime(1, time + 0.03);
+      envelope.gain.setValueAtTime(1, time + duration * 0.7);
+      envelope.gain.exponentialRampToValueAtTime(0.0001, time + duration);
+      note.connect(tremolo).connect(envelope).connect(voice);
+      note.start(time);
+      note.stop(time + duration + 0.05);
+      rasp.start(time);
+      rasp.stop(time + duration + 0.05);
+      lastNote = note;
+      time += duration + 0.08 + Math.random() * 0.12;
+    }
+    lastNote.onended = () => last.disconnect();
   }
 
   // 碎浪：帶通噪音由高頻往低頻掃，加上泡沫的嘶嘶聲

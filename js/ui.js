@@ -27,6 +27,7 @@ export function createControls(params, { onChange, onAudioToggle, onReset, onRes
   const toggle = document.getElementById('panel-toggle');
   const audioButton = document.getElementById('audioToggle');
   const timelapseButton = document.getElementById('timelapse');
+  const sceneryButton = document.getElementById('sceneryToggle');
   const outputs = new Map([...document.querySelectorAll('output[data-for]')].map((o) => [o.dataset.for, o]));
 
   const setCollapsed = (collapsed) => {
@@ -53,6 +54,17 @@ export function createControls(params, { onChange, onAudioToggle, onReset, onRes
     onChange('timelapse');
   };
   timelapseButton.addEventListener('click', () => setTimelapse(!params.timelapse));
+
+  // 海鷗與遠方的船：顯示或隱藏
+  const showScenery = () => {
+    sceneryButton.setAttribute('aria-pressed', String(params.scenery));
+    sceneryButton.textContent = params.scenery ? '隱藏海鷗與船' : '顯示海鷗與船';
+  };
+  sceneryButton.addEventListener('click', () => {
+    params.scenery = !params.scenery;
+    showScenery();
+    onChange('scenery');
+  });
 
   // 海況預設：一次設定風速、湧浪與天氣；目前的參數剛好和某個預設相同時，那個按鈕顯示為按下
   const presetButtons = [...document.querySelectorAll('[data-preset]')];
@@ -158,6 +170,7 @@ export function createControls(params, { onChange, onAudioToggle, onReset, onRes
     quality.value = params.quality;
     showViewMode();
     showTimelapse();
+    showScenery();
     showPresets();
   }
   sync();
