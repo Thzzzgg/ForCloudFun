@@ -7,8 +7,8 @@
 以 WebGL2 與 FFT 海洋頻譜即時模擬擬真海浪的靜態網站，不使用外部函式庫、沒有建置步驟。
 
 - 本機執行：在專案根目錄執行 `python3 -m http.server 8000`，再開啟 <http://localhost:8000>（不能直接雙擊 `index.html`）。
-- 程式碼位於 `js/`（ES module），shader 位於 `shaders/`，`common.glsl`、`atmosphere.glsl`、`clouds.glsl`、`buoy.glsl` 透過 JS 端的 `#include` 前處理插入。
-- 網址加上 `?debug` 會開放 `window.__ocean` 除錯介面（暫停畫面、讀取統計值、模擬幀率測試自動畫質、操作視角控制 `rig`、讀取光源與天氣 `getEnvironment`、浪花飛沫 `spray`、音效 `audio`、鐘錘 `bell`、用 `getFrameCount` 等待新的一幀、用 `getTime` 讀取動畫時間）。
+- 程式碼位於 `js/`（ES module），shader 位於 `shaders/`，`common.glsl`、`atmosphere.glsl`、`clouds.glsl`、`buoy.glsl`、`ripples.glsl` 透過 JS 端的 `#include` 前處理插入。
+- 網址加上 `?debug` 會開放 `window.__ocean` 除錯介面（暫停畫面、讀取統計值、模擬幀率測試自動畫質、操作視角控制 `rig`、讀取光源與天氣 `getEnvironment`、浪花飛沫 `spray`、音效 `audio`、鐘錘 `bell`、點擊水面的水花 `splashes`（`splashAt(x, z)` 在指定位置濺起水花）、用 `getFrameCount` 等待新的一幀、用 `getTime` 讀取動畫時間）。
 - 測試：在專案根目錄執行 `node --test`（單元測試位於 `tests/`）。
 - 詳細結構與技術說明見 `README.md`。
 

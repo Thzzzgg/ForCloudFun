@@ -46,7 +46,8 @@ export class OceanSurface {
   }
 
   // buoy：{ probe, probeIndex, anchor, foam, lampIntensity }，浮標的倒影與吃水線泡沫圈用
-  draw({ camera, simulation, sky, environment, foamDetail, scatterColor, foamBias, maxDistance, buoy, time }) {
+  // ripples：{ data, count }，點擊水面產生的漣漪（js/ripples.js 的 Ripples.pack）
+  draw({ camera, simulation, sky, environment, foamDetail, scatterColor, foamBias, maxDistance, buoy, ripples, time }) {
     const { gl } = this;
     // 網格頂端對齊地平線在畫面上的位置（畫面傾斜時取最高點）
     // 往上看時地平線可能在畫面下方，往下看時則在畫面上方之外，都要限制在合理範圍
@@ -69,6 +70,8 @@ export class OceanSurface {
       .set('u_buoyAnchor', buoy.anchor)
       .set('u_buoyFoam', buoy.foam)
       .set('u_lampIntensity', buoy.lampIntensity)
+      .set('u_ripples', ripples.data)
+      .set('u_rippleCount', ripples.count)
       .set('u_time', time);
     setEnvironmentUniforms(program, environment);
     const unit = simulation.bindTextures(program, 0);
