@@ -17,6 +17,7 @@ import { PostProcess } from './post.js';
 import { createFoamDetailTexture } from './textures.js';
 import { OceanAudio } from './audio.js';
 import { createControls } from './ui.js';
+import { clearSettings, decodeShare, loadSettings, saveSettings, stripShare } from './settings.js';
 import { createCamera, updateCamera } from './camera.js';
 import { CameraRig, orbitPosition } from './camera-rig.js';
 import { attachCameraInput } from './camera-input.js';
@@ -93,6 +94,15 @@ const SEA_STATE_KEYS = ['windSpeed', 'windDirection', 'heightScale', 'swellHeigh
 const statusBox = document.getElementById('status');
 const statusText = document.getElementById('status-text');
 
+// localStorage 在私密瀏覽或關閉網站資料時可能無法使用，取不到就不記設定
+function settingsStorage() {
+  try {
+    return window.localStorage;
+  } catch {
+    return null;
+  }
+}
+
 function showError(error) {
   console.error(error);
   statusText.textContent = error instanceof UserFacingError
@@ -164,7 +174,20 @@ async function main() {
   const sources = await loadShaderSources(new URL('../shaders/', import.meta.url), SHADERS);
   const programs = buildPrograms(gl, sources);
 
-  const params = { ...DEFAULTS };
+  // 設定：預設值 ← 上次記住的設定 ← 分享連結帶來的海況
+  const storage = settingsStorage();
+  const shared = decodeShare(location.search);
+  const params = { ...DEFAULTS, ...loadSettings(storage), ...shared };
+  if (Object.keys(shared).length) {
+    // 套用後把分享參數從網址列拿掉，之後再調整時網址才不會和畫面不一致
+    history.replaceState(null, '', stripShare(location.href));
+    saveSettings(storage, params);
+  }
+  let saveTimer = null;
+  const scheduleSave = () => {
+    clearTimeout(saveTimer);
+    saveTimer = setTimeout(() => saveSettings(storage, params), 500);
+  };
   const sky = new Sky(gl, programs);
   const foamDetail = createFoamDetailTexture(gl);
   const post = new PostProcess(gl, programs);
@@ -216,6 +239,7 @@ async function main() {
       else if (key === 'volume') audio.setVolume(params.volume);
       else if (key === 'viewMode') rig.setMode(params.viewMode);
       else if (SEA_STATE_KEYS.includes(key)) seaStateDirty = true;
+      if (key !== 'timelapse') scheduleSave();
     },
     onAudioToggle: () => audio.setEnabled(!audio.enabled),
     onResetView: () => rig.reset(),
@@ -226,9 +250,15 @@ async function main() {
       audio.setVolume(params.volume);
       rig.resetAll();
       if (params.quality !== previousQuality) applyQuality();
+      clearTimeout(saveTimer);
+      clearSettings(storage);
     },
+    onShare: hideHint,
   });
   if (!audio.supported) ui.disableAudio();
+  // 還原的設定裡可能有音量與船上視角
+  audio.setVolume(params.volume);
+  if (params.viewMode !== 'orbit') rig.setMode(params.viewMode);
 
   const devicePixelRatio = () => window.devicePixelRatio || 1;
 
@@ -307,9 +337,13 @@ async function main() {
 
   applyQuality();
 
+  // 離開或切到背景時記下設定（縮時播放推進的時間不會觸發 onChange）
   document.addEventListener('visibilitychange', () => {
-    if (document.hidden) adaptive?.pause();
+    if (!document.hidden) return;
+    adaptive?.pause();
+    saveSettings(storage, params);
   });
+  window.addEventListener('pagehide', () => saveSettings(storage, params));
 
   let running = true;
   canvas.addEventListener('webglcontextlost', (event) => {

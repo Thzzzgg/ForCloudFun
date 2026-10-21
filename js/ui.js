@@ -1,6 +1,7 @@
 // 參數控制面板：把滑桿、顏色、音效與畫質設定綁定到參數物件
 import { formatTime, periodName } from './celestial.js';
 import { beaufort, SEA_PRESETS } from './beaufort.js';
+import { shareUrl } from './settings.js';
 
 const direction = (v) => `<span class="arrow" style="transform: rotate(${v}deg)">↑</span>${Math.round(v)}°`;
 
@@ -22,7 +23,7 @@ const FORMATTERS = {
   volume: (v) => `${Math.round(v * 100)}%`,
 };
 
-export function createControls(params, { onChange, onAudioToggle, onReset, onResetView }) {
+export function createControls(params, { onChange, onAudioToggle, onReset, onResetView, onShare = () => {} }) {
   const panel = document.getElementById('panel');
   const toggle = document.getElementById('panel-toggle');
   const audioButton = document.getElementById('audioToggle');
@@ -155,6 +156,38 @@ export function createControls(params, { onChange, onAudioToggle, onReset, onRes
   document.getElementById('reset').addEventListener('click', () => {
     onReset();
     sync();
+  });
+
+  // 畫面下方的短暫訊息
+  const toast = document.getElementById('toast');
+  let toastTimer = null;
+  const showToast = (text) => {
+    toast.textContent = text;
+    toast.classList.remove('hidden');
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => toast.classList.add('hidden'), 3500);
+  };
+
+  // 分享連結：複製到剪貼簿；不能複製（例如沒有權限）時把連結選取好，讓使用者自己複製
+  const shareLink = document.getElementById('shareLink');
+  document.getElementById('share').addEventListener('click', async () => {
+    onShare();
+    const url = shareUrl(location.href, params);
+    shareLink.value = url;
+    shareLink.hidden = false;
+    shareLink.select();
+    let copied = false;
+    try {
+      await navigator.clipboard.writeText(url);
+      copied = true;
+    } catch {
+      try {
+        copied = document.execCommand('copy');
+      } catch {
+        copied = false;
+      }
+    }
+    showToast(copied ? '已複製分享連結，貼給朋友就能看到同樣的海' : '請複製下方的連結分享給朋友');
   });
 
   // 程式改變參數後（例如縮時播放推進時間）更新對應的滑桿與數值
