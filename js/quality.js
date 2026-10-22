@@ -45,7 +45,8 @@ export class AdaptiveQuality {
     this.elapsed = 0;
   }
 
-  // 分頁切到背景時呼叫：回來後的第一幀包含在背景的時間，不列入計算
+  // 下一幀量到的時間會特別久時呼叫，那一幀不列入計算：
+  // 分頁切到背景（回來後的第一幀包含在背景的時間）、截圖（以較高的解析度畫一幀並讀出畫面）
   pause() {
     this.restartWindow(this.warmup);
     this.skipNext = true;

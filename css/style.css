@@ -143,6 +143,17 @@ body {
   box-shadow: 0 12px 32px rgba(0, 0, 0, 0.28);
   -webkit-backdrop-filter: blur(14px) saturate(140%);
   backdrop-filter: blur(14px) saturate(140%);
+  transition: opacity 0.2s ease, visibility 0.2s;
+}
+
+/* 按 H 隱藏整個面板，只看海；畫面取得焦點時也不畫外框 */
+.panel-hidden .panel {
+  opacity: 0;
+  visibility: hidden;
+}
+
+.panel-hidden #ocean:focus-visible {
+  outline: none;
 }
 
 .panel-header {
@@ -154,10 +165,21 @@ body {
 }
 
 .panel-header h1 {
+  min-width: 0;
   margin: 0;
+  overflow: hidden;
   font-size: 15px;
   font-weight: 600;
   letter-spacing: 0.06em;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 標題列右側的按鈕：截圖、全螢幕、收合 */
+.panel-actions {
+  display: flex;
+  flex: none;
+  gap: 6px;
 }
 
 .panel-body {
@@ -304,6 +326,7 @@ select option {
 .icon-button {
   padding: 5px 10px;
   font-size: 13px;
+  white-space: nowrap;
 }
 
 .button:hover,
@@ -311,7 +334,8 @@ select option {
   background: rgba(98, 210, 223, 0.28);
 }
 
-.button[aria-pressed="true"] {
+.button[aria-pressed="true"],
+.icon-button[aria-pressed="true"] {
   background: var(--accent);
   color: var(--accent-ink);
 }
@@ -440,8 +464,16 @@ select option {
 
 @media (prefers-reduced-motion: reduce) {
   .hint-toast,
-  .status {
+  .status,
+  .panel {
     transition: none;
+  }
+}
+
+/* 只有觸控螢幕的裝置（手機、沒接鍵盤與觸控板的平板）不顯示鍵盤操作說明 */
+@media (hover: none) and (pointer: coarse) {
+  .keyboard-hint {
+    display: none;
   }
 }
 
