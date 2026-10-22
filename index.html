@@ -9,7 +9,7 @@
   <link rel="stylesheet" href="css/style.css">
 </head>
 <body>
-  <canvas id="ocean" tabindex="0" aria-label="即時模擬的海面畫面：拖曳旋轉視角，滾輪或雙指縮放，方向鍵也可以轉動視角；點一下水面會濺起水花"></canvas>
+  <canvas id="ocean" tabindex="0" aria-label="即時模擬的海面畫面：拖曳旋轉視角，滾輪或雙指縮放，方向鍵也可以轉動視角；點一下水面會濺起水花；按 P 截圖、F 全螢幕、H 隱藏面板"></canvas>
 
   <div id="hint" class="hint-toast hidden" aria-hidden="true">拖曳畫面旋轉視角，滾輪或雙指縮放，點一下水面濺起水花</div>
   <div id="toast" class="hint-toast hidden" role="status" aria-live="polite"></div>
@@ -22,7 +22,11 @@
   <aside id="panel" class="panel" aria-label="海面參數">
     <div class="panel-header">
       <h1>海面參數</h1>
-      <button id="panel-toggle" class="icon-button" type="button" aria-expanded="true" aria-controls="panel-body">收合</button>
+      <div class="panel-actions">
+        <button id="screenshot" class="icon-button" type="button" aria-keyshortcuts="P" title="下載目前畫面的截圖（P）">截圖</button>
+        <button id="fullscreen" class="icon-button" type="button" aria-pressed="false" aria-keyshortcuts="F" title="全螢幕（F）" hidden>全螢幕</button>
+        <button id="panel-toggle" class="icon-button" type="button" aria-expanded="true" aria-controls="panel-body" title="收合或展開面板（按 H 完全隱藏）">收合</button>
+      </div>
     </div>
 
     <div id="panel-body" class="panel-body">
@@ -169,6 +173,7 @@
         <input id="shareLink" class="share-link" type="text" readonly aria-label="分享連結" hidden>
         <button id="reset" class="button secondary" type="button">恢復預設值</button>
         <p class="hint">設定會自動記在這台裝置上，下次開啟時還原；分享連結帶著目前的海況、天氣與時間。</p>
+        <p class="hint keyboard-hint">鍵盤：P 截圖、F 全螢幕、H 隱藏面板；拖曳過畫面後，方向鍵轉動視角、＋／－ 縮放、0 重設。</p>
       </section>
     </div>
   </aside>

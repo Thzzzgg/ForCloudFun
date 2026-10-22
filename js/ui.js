@@ -1,7 +1,8 @@
-// 參數控制面板：把滑桿、顏色、音效與畫質設定綁定到參數物件
+// 參數控制面板：把滑桿、顏色、音效與畫質設定綁定到參數物件，以及截圖、全螢幕與快捷鍵
 import { formatTime, periodName } from './celestial.js';
 import { beaufort, SEA_PRESETS } from './beaufort.js';
 import { shareUrl } from './settings.js';
+import { fullscreenActive, fullscreenSupported, screenshotName, setFullscreen, shortcutFor } from './shortcuts.js';
 
 const direction = (v) => `<span class="arrow" style="transform: rotate(${v}deg)">↑</span>${Math.round(v)}°`;
 
@@ -23,13 +24,42 @@ const FORMATTERS = {
   volume: (v) => `${Math.round(v * 100)}%`,
 };
 
-export function createControls(params, { onChange, onAudioToggle, onReset, onResetView, onShare = () => {} }) {
+// 把檔案交給瀏覽器下載；暫時的網址等下載開始後再釋放
+function download(blob, name) {
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = name;
+  document.body.append(link);
+  link.click();
+  link.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 60000);
+}
+
+// onScreenshot：等下一幀畫完時截圖，回傳 Promise<{ blob, width, height }>
+// onMessage：畫面下方顯示訊息前呼叫（例如先收起操作提示，免得兩個疊在一起）
+export function createControls(params, { onChange, onAudioToggle, onReset, onResetView, onScreenshot, onMessage = () => {} }) {
   const panel = document.getElementById('panel');
   const toggle = document.getElementById('panel-toggle');
   const audioButton = document.getElementById('audioToggle');
   const timelapseButton = document.getElementById('timelapse');
   const sceneryButton = document.getElementById('sceneryToggle');
   const outputs = new Map([...document.querySelectorAll('output[data-for]')].map((o) => [o.dataset.for, o]));
+
+  // 畫面下方的短暫訊息
+  const toast = document.getElementById('toast');
+  let toastTimer = null;
+  const showToast = (text) => {
+    onMessage();
+    toast.textContent = text;
+    toast.classList.remove('hidden');
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => toast.classList.add('hidden'), 3500);
+  };
+  const hideToast = () => {
+    clearTimeout(toastTimer);
+    toast.classList.add('hidden');
+  };
 
   const setCollapsed = (collapsed) => {
     panel.classList.toggle('collapsed', collapsed);
@@ -38,6 +68,66 @@ export function createControls(params, { onChange, onAudioToggle, onReset, onRes
   };
   toggle.addEventListener('click', () => setCollapsed(!panel.classList.contains('collapsed')));
   if (window.matchMedia('(max-width: 600px)').matches) setCollapsed(true);
+
+  // 隱藏整個面板（快捷鍵 H），只看海；焦點原本在面板裡時移到畫面上，方向鍵才能繼續轉動視角
+  const togglePanel = () => {
+    const hidden = !document.body.classList.contains('panel-hidden');
+    document.body.classList.toggle('panel-hidden', hidden);
+    if (!hidden) {
+      hideToast();
+      return;
+    }
+    if (panel.contains(document.activeElement)) document.getElementById('ocean').focus();
+    showToast('已隱藏面板，再按 H 顯示');
+  };
+
+  // 截圖：等下一幀畫完時讀出畫面，存成 PNG 下載；還在處理時不重複截圖
+  let capturing = false;
+  const takeScreenshot = async () => {
+    if (capturing) return;
+    capturing = true;
+    try {
+      const { blob, width, height } = await onScreenshot();
+      if (!blob) throw new Error('畫面無法轉成圖片');
+      download(blob, screenshotName(new Date()));
+      showToast(`已下載截圖（${width} × ${height}）`);
+    } catch (error) {
+      console.warn('無法截圖：', error);
+      showToast('無法截圖，請再試一次');
+    } finally {
+      capturing = false;
+    }
+  };
+  document.getElementById('screenshot').addEventListener('click', takeScreenshot);
+
+  // 全螢幕：瀏覽器不支援（例如 iPhone）時不顯示按鈕；按 Esc 離開全螢幕時也要更新按鈕狀態
+  const fullscreenButton = document.getElementById('fullscreen');
+  const showFullscreen = () => fullscreenButton.setAttribute('aria-pressed', String(fullscreenActive(document)));
+  const toggleFullscreen = () => {
+    if (!fullscreenSupported(document)) {
+      showToast('這裡無法使用全螢幕');
+      return;
+    }
+    setFullscreen(document, !fullscreenActive(document)).catch((error) => {
+      console.warn('無法切換全螢幕：', error);
+      showToast('無法切換全螢幕');
+    });
+  };
+  if (fullscreenSupported(document)) {
+    fullscreenButton.hidden = false;
+    fullscreenButton.addEventListener('click', toggleFullscreen);
+    document.addEventListener('fullscreenchange', showFullscreen);
+    document.addEventListener('webkitfullscreenchange', showFullscreen);
+  }
+
+  // 快捷鍵：P 截圖、F 全螢幕、H 隱藏面板（在文字欄位裡打字或按著 Ctrl、⌘ 時不觸發）
+  const shortcuts = { screenshot: takeScreenshot, fullscreen: toggleFullscreen, panel: togglePanel };
+  document.addEventListener('keydown', (event) => {
+    const action = shortcutFor(event);
+    if (!action) return;
+    event.preventDefault();
+    shortcuts[action]();
+  });
 
   const showValue = (key) => {
     const output = outputs.get(key);
@@ -158,20 +248,9 @@ export function createControls(params, { onChange, onAudioToggle, onReset, onRes
     sync();
   });
 
-  // 畫面下方的短暫訊息
-  const toast = document.getElementById('toast');
-  let toastTimer = null;
-  const showToast = (text) => {
-    toast.textContent = text;
-    toast.classList.remove('hidden');
-    clearTimeout(toastTimer);
-    toastTimer = setTimeout(() => toast.classList.add('hidden'), 3500);
-  };
-
   // 分享連結：複製到剪貼簿；不能複製（例如沒有權限）時把連結選取好，讓使用者自己複製
   const shareLink = document.getElementById('shareLink');
   document.getElementById('share').addEventListener('click', async () => {
-    onShare();
     const url = shareUrl(location.href, params);
     shareLink.value = url;
     shareLink.hidden = false;

@@ -233,6 +233,26 @@ async function main() {
   let seaStateDirty = true;
   let stats = { significantHeight: 0, peakPeriod: 0 };
 
+  // 截圖：畫布不保留繪圖緩衝，一幀交給瀏覽器顯示後內容就清掉了，所以等下一幀畫完時在同一幀裡讀出
+  // 自動畫質暫時降低解析度時，截圖那一幀改用這個畫質等級的完整解析度（見 resize）
+  let screenshotRequest = null; // { promise, resolve }
+  function requestScreenshot() {
+    if (!screenshotRequest) {
+      let resolve;
+      const promise = new Promise((done) => { resolve = done; });
+      screenshotRequest = { promise, resolve };
+    }
+    return screenshotRequest.promise;
+  }
+  function captureScreenshot() {
+    const { resolve } = screenshotRequest;
+    screenshotRequest = null;
+    const { width, height } = canvas;
+    canvas.toBlob((blob) => resolve({ blob, width, height }), 'image/png');
+    // 這一幀解析度較高又要讀出畫面，比平常慢，不列入自動畫質的幀率計算
+    adaptive?.pause();
+  }
+
   const ui = createControls(params, {
     onChange(key) {
       if (key === 'quality') applyQuality();
@@ -253,7 +273,8 @@ async function main() {
       clearTimeout(saveTimer);
       clearSettings(storage);
     },
-    onShare: hideHint,
+    onScreenshot: requestScreenshot,
+    onMessage: hideHint,
   });
   if (!audio.supported) ui.disableAudio();
   // 還原的設定裡可能有音量與船上視角
@@ -263,7 +284,8 @@ async function main() {
   const devicePixelRatio = () => window.devicePixelRatio || 1;
 
   function resize() {
-    const ratio = adaptive ? adaptive.pixelRatio : Math.min(devicePixelRatio(), QUALITY[tier].maxPixelRatio);
+    // 截圖那一幀不套用自動畫質降低的解析度
+    const ratio = adaptive && !screenshotRequest ? adaptive.pixelRatio : Math.min(devicePixelRatio(), QUALITY[tier].maxPixelRatio);
     const width = Math.max(1, Math.round(canvas.clientWidth * ratio));
     const height = Math.max(1, Math.round(canvas.clientHeight * ratio));
     if (canvas.width !== width || canvas.height !== height) {
@@ -556,6 +578,7 @@ async function main() {
     splashes.draw({ ...shared, viewportHeight: canvas.height });
     post.endScene();
     post.render({ sky: sky.texture, bloomStrength: CONFIG.bloomStrength, time });
+    if (screenshotRequest) captureScreenshot();
     frameCount++;
 
     fpsFrames++;
