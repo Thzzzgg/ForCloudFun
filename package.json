@@ -1,0 +1,5 @@
+{
+  "private": true,
+  "description": "讓 Node.js 把 js/ 裡的檔案當成 ES module（單元測試會匯入它們）；網站本身不需要安裝任何套件",
+  "type": "module"
+}

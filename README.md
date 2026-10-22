@@ -1,5 +1,7 @@
 # 擬真海浪
 
+[![測試](https://github.com/Thzzzgg/ForCloudFun/actions/workflows/test.yml/badge.svg?branch=main)](https://github.com/Thzzzgg/ForCloudFun/actions/workflows/test.yml)
+
 以 WebGL2 即時模擬的擬真海洋網站。海面由 FFT（快速傅立葉轉換）海洋頻譜在 GPU 上計算，不使用任何外部函式庫。
 
 線上展示：<https://thzzzgg.github.io/ForCloudFun/>
@@ -59,7 +61,21 @@ python3 -m http.server 8000
 node --test
 ```
 
-會執行 `tests/` 中的單元測試（自動畫質的判斷邏輯；湧浪的波高換算、方向分布與各層波數分界；視角控制與地平線位置；太陽、月亮與天球的運行；雲量與能見度的換算；大氣穿透率與光源；強風效果的強度；浮標姿態、吃水線泡沫與鐘錘的模擬；蒲福風級與海況預設；漣漪與水花；點擊與拖曳的判斷；海鷗的飛行與模型；船的航線、搖晃與航行燈；記住設定與分享網址；快捷鍵、截圖檔名與全螢幕），需要 Node.js 18 以上。
+會執行 `tests/` 中的單元測試（自動畫質的判斷邏輯；湧浪的波高換算、方向分布與各層波數分界；視角控制與地平線位置；太陽、月亮與天球的運行；雲量與能見度的換算；大氣穿透率與光源；強風效果的強度；浮標姿態、吃水線泡沫與鐘錘的模擬；蒲福風級與海況預設；漣漪與水花；點擊與拖曳的判斷；海鷗的飛行與模型；船的航線、搖晃與航行燈；記住設定與分享網址；快捷鍵、截圖檔名與全螢幕），需要 Node.js 18 以上，不需要安裝任何套件。
+
+#### 瀏覽器測試
+
+```bash
+npm install --no-save playwright@1.56.1
+npx playwright install chromium
+node tests/browser.mjs
+```
+
+`tests/browser.mjs` 會啟動一個簡單的網頁伺服器，把網站放在和 GitHub Pages 一樣的 `/ForCloudFun/` 子路徑底下，用無頭 Chromium 開啟，依序走過預設海況、開啟音效、狂風與點擊水面、夜晚、船上視角、畫質「低」、截圖、快捷鍵與恢復預設值。每個場景都檢查畫面不是全黑或單一顏色、沒有成片的黑色（shader 算出 NaN 時通常是黑的），最後確認主控台沒有任何錯誤或警告、所有檔案都載入成功。各場景的畫面與下載的截圖存在 `BROWSER_TEST_OUTPUT` 指定的資料夾（預設為系統暫存資料夾下的 `ocean-browser-test`）。Playwright 只有測試會用到，不是網站的依賴，所以不放進專案；`--no-save` 不會修改 `package.json`。
+
+#### 自動測試
+
+每次推送到 GitHub 時，GitHub Actions（`.github/workflows/test.yml`）會以 Node.js 18、22、24 執行單元測試，並執行瀏覽器測試；各場景的畫面上傳為 `browser-test` artifact，可以在執行紀錄的頁面下載。GitHub 的執行環境沒有顯示卡，瀏覽器測試以 SwiftShader 軟體繪圖：抓得到 GLSL 的語法與連結錯誤、JS 錯誤與載入失敗的檔案，但抓不到特定顯示卡驅動程式才有的問題。
 
 ### 除錯模式
 
@@ -69,6 +85,7 @@ node --test
 
 ```
 index.html              頁面與控制面板
+package.json            只宣告 "type": "module"，讓 Node.js 把 js/ 裡的檔案當成 ES module（沒有任何依賴）
 css/style.css           樣式
 js/main.js              進入點：初始化與主迴圈
 js/gl.js                WebGL2 工具（shader、紋理、framebuffer）
@@ -100,6 +117,8 @@ js/camera-input.js      滑鼠、觸控與鍵盤操作
 js/wave-probe.js        非同步讀回 GPU 上的海面高度與坡度
 shaders/                所有 GLSL shader（common.glsl、atmosphere.glsl、clouds.glsl、buoy.glsl、ripples.glsl 由其他 shader include）
 tests/                  單元測試（node --test）
+tests/browser.mjs       瀏覽器測試（需要 Playwright，不在 node --test 的範圍內）
+.github/workflows/      GitHub Actions：每次推送時自動測試
 ```
 
 ## 技術筆記

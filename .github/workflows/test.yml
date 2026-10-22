@@ -1,0 +1,63 @@
+# 自動測試：每次推送時執行單元測試與無頭 Chromium 的瀏覽器測試（tests/browser.mjs）
+name: 測試
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# 同一個分支有新的推送時，取消還在跑的舊測試（main 除外，每次合併都要測完）
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+env:
+  PLAYWRIGHT_VERSION: 1.56.1
+
+jobs:
+  unit:
+    name: 單元測試（Node ${{ matrix.node }}）
+    # 同一個儲存庫的 PR 已經由 push 測過，只有從 fork 來的 PR 才另外跑
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        node: [18, 22, 24] # README 寫的最低版本、開發時用的版本與目前的 LTS
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: ${{ matrix.node }}
+      - run: node --test
+
+  browser:
+    name: 瀏覽器測試（Chromium）
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+      - name: 安裝 Playwright 與 Chromium
+        run: |
+          npm install --no-save --no-audit --no-fund "playwright@${PLAYWRIGHT_VERSION}"
+          npx playwright install --with-deps --only-shell chromium
+      - name: 執行瀏覽器測試
+        run: node tests/browser.mjs
+        env:
+          BROWSER_TEST_OUTPUT: ${{ runner.temp }}/browser-test
+      - name: 上傳各場景的畫面
+        if: always()
+        uses: actions/upload-artifact@v5
+        with:
+          name: browser-test
+          path: ${{ runner.temp }}/browser-test
+          if-no-files-found: ignore
+          retention-days: 14

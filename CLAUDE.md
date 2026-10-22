@@ -9,7 +9,8 @@
 - 本機執行：在專案根目錄執行 `python3 -m http.server 8000`，再開啟 <http://localhost:8000>（不能直接雙擊 `index.html`）。
 - 程式碼位於 `js/`（ES module），shader 位於 `shaders/`，`common.glsl`、`atmosphere.glsl`、`clouds.glsl`、`buoy.glsl`、`ripples.glsl` 透過 JS 端的 `#include` 前處理插入。
 - 網址加上 `?debug` 會開放 `window.__ocean` 除錯介面（暫停畫面、讀取統計值、模擬幀率測試自動畫質、操作視角控制 `rig`、讀取光源與天氣 `getEnvironment`、浪花飛沫 `spray`、音效 `audio`、鐘錘 `bell`、點擊水面的水花 `splashes`（`splashAt(x, z)` 在指定位置濺起水花）、海鷗 `gulls`、遠方的船 `ships`、用 `getFrameCount` 等待新的一幀、用 `getTime` 讀取動畫時間）。
-- 測試：在專案根目錄執行 `node --test`（單元測試位於 `tests/`）。
+- 測試：在專案根目錄執行 `node --test`（單元測試位於 `tests/`）。瀏覽器測試 `node tests/browser.mjs` 需要先安裝 Playwright（指令見 README），會在無頭 Chromium 檢查 shader 編譯、JS 錯誤與各場景的畫面。
+- 推送後 GitHub Actions（`.github/workflows/test.yml`）會自動執行單元測試與瀏覽器測試；合併到 `main` 前先確認都通過。
 - 設定會記在瀏覽器的 localStorage（`ocean.settings`），重新整理後仍會沿用；要從預設狀態測試時用無痕視窗，或先按「恢復預設值」。網址可帶分享參數（例如 `?time=18.5&wind=12`），格式見 `js/settings.js`。
 - 網站以 GitHub Pages 從 `main` 分支的根目錄發佈（<https://thzzzgg.github.io/ForCloudFun/>），合併到 `main` 後約一兩分鐘更新；根目錄的 `.nojekyll` 讓 Pages 不經 Jekyll 處理，請勿刪除。
 - 詳細結構與技術說明見 `README.md`。
